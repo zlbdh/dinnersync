@@ -7,8 +7,8 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "DinnerSync",
-  description: "Plan together. Cook on time.",
+  title: "DinnerSync — One finish line for dinner",
+  description: "Turn three recipes into one resource-aware service plan.",
 };
 
 type RootLayoutProps = Readonly<{
