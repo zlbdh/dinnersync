@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f7f3ea;
+  --foreground: #203126;
+  --muted: #637066;
+  --accent: #d45f3d;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  background: var(--background);
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, rgb(212 95 61 / 14%), transparent 32rem),
+    var(--background);
+  color: var(--foreground);
+  font-family: "Manrope", sans-serif;
+}
+
+.home {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 2rem;
+}
+
+.home__intro {
+  width: min(100%, 44rem);
+}
+
+.home__eyebrow {
+  margin: 0 0 1rem;
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.home h1 {
+  margin: 0;
+  font-family: "Fraunces", serif;
+  font-size: clamp(4rem, 14vw, 8rem);
+  letter-spacing: -0.06em;
+  line-height: 0.9;
+}
+
+.home__tagline {
+  margin: 1.5rem 0 0;
+  color: var(--muted);
+  font-size: clamp(1rem, 3vw, 1.35rem);
+  line-height: 1.6;
+}
+
+::selection {
+  background: var(--accent);
+  color: #fffaf3;
+}
