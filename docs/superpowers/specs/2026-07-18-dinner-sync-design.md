@@ -1,7 +1,7 @@
 # DinnerSync 产品与技术设计
 
 日期：2026-07-18
-状态：Revision 3 完成，待复审
+状态：Revision 4 完成，待复审
 比赛：OpenAI Build Week 2026
 赛道：Apps for Your Life
 
@@ -153,6 +153,8 @@ plannedGrams = sourceGrams * targetServings / sourceServings
 ```
 
 `sourceGrams` 表示原菜谱重量，`plannedGrams` 表示当前晚餐实际计划重量。份量变化只缩放食材重量，不自动缩放步骤时长；所有受影响时长仍需用户确认。
+
+只有 `sourceServings` 为非空正数时才能执行该公式。若用户确认原文没有提供原始份数，`sourceServings` 保持 `null`，该菜谱的 `plannedGrams` 不生成，并且不能参与完整热量或目标差值结论；排程仍可使用已经确认的步骤、依赖、时长和资源字段。营养模块只汇总其他具有可靠 `plannedGrams` 的实际使用食材，并将结果标为“已知热量小计”。
 
 修改 `targetServings` 后，系统必须立即使所有 `plannedGrams`、营养汇总和既有排程失效，并把该菜谱全部步骤字段重置为 `needs-review`。只有重新计算重量、重新确认全部步骤并通过字段门禁后，才能再次生成热量与时间线。
 
@@ -366,11 +368,13 @@ meal_kcal_per_person = sum(recipe_kcal) / diners
 
 P0 仅支持克、千克、毫升、升以及演示数据集中明确配置的量杯/量匙换算。`个`、`少许`、品牌包装等无法可靠换算时，用户必须填写克数，否则该食材保持未解析。
 
-`sourceServings` 必须存在且大于零，否则禁止份量换算和完整热量计算。未知食材或不可靠换算不得计入完整总量。只要一个实际使用食材未解析，界面就只显示已知热量小计、已解析食材数量和未解析清单，不显示可能误导的“热量覆盖率”百分比，也不得声称已达到目标。
+`sourceServings` 必须存在且大于零，否则营养模块拒绝份量换算和完整热量计算，并让该菜谱全部 `plannedGrams` 保持 `null`。未知食材或不可靠换算不得计入完整总量。只要一个实际使用食材未解析，界面就只显示已知热量小计、已解析食材数量和未解析清单，不显示可能误导的“热量覆盖率”百分比，也不得声称已达到目标。
 
 比赛演示使用经过人工核验的小型本地数据集。正式接入外部营养数据前必须确认许可、字段和版本策略。
 
 ### 7.5 排程模块
+
+排程器不读取 `sourceServings` 或任何营养汇总字段；它只接收已确认的步骤、依赖、时长、资源、terminal 标记、`availableFrom` 和 `serveAt`。因此已由用户确认“原文未提供原始份数”的菜谱仍可进入排程。
 
 任务必须是原子动作。复合描述如“放入烤箱烘烤后取出”要拆为放入、烘烤和取出三个任务。任务模型包含：
 
@@ -458,7 +462,7 @@ type RecipeDraft = {
   id: string;
   sourceText: string;
   name: ReviewValue<string>;
-  sourceServings: ReviewValue<number>;
+  sourceServings: ReviewValue<number | null>;
   ingredients: IngredientDraft[];
   steps: CookingStepDraft[];
 };
@@ -487,7 +491,7 @@ type CookingStepDraft = {
 
 `EvidenceSpan` 使用 JavaScript UTF-16 code unit 偏移和左闭右开区间 `[start, end)`。当 `provenance === "source"` 时 `evidence` 必须非空且可由对应记录的 `sourceText.slice(start, end)` 精确复算；当 `provenance === "inferred"` 时 `evidence` 必须为 `null`，`inferenceReason` 必须非空。
 
-`RecipeDraft` 是编辑与复核的真源。只有所有排程必需的 `ReviewValue` 均为 `confirmed` 后，转换器才生成不含 AI 元数据的纯领域对象。修改份量或省略食材会丢弃已生成的领域对象，并把该菜谱全部步骤字段重新设为 `needs-review`。
+`RecipeDraft` 是编辑与复核的真源。只有所有排程必需的 `ReviewValue` 均为 `confirmed` 后，转换器才生成不含 AI 元数据的纯领域对象。用户可把原文未提供的 `sourceServings` 作为 `null` 显式确认；它不是排程门禁字段，转换器必须保留该空值。修改份量或省略食材会丢弃已生成的领域对象，并把该菜谱全部步骤字段重新设为 `needs-review`。
 
 ### 8.2 已确认 Recipe
 
@@ -496,7 +500,7 @@ type Recipe = {
   id: string;
   name: string;
   sourceText: string;
-  sourceServings: number;
+  sourceServings: number | null;
   targetServings: number;
   ingredients: Ingredient[];
   steps: CookingStep[];
@@ -670,6 +674,7 @@ type TaskRuntimeState = {
 - Codex 输出 schema；
 - 内置样例 JSON；
 - 持久化 schema 版本；
+- 缺少 `sourceServings` 的已确认 Draft 可转换为 `Recipe` 并正常排程，但营养模块只显示已知热量小计；
 - 模型失败后的回退路径。
 
 ### 11.3 端到端测试
