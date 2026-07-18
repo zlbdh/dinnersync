@@ -1,11 +1,8 @@
 import { fromEpochMs, parseIsoInstant, toEpochMs } from "@/shared";
 import type { ResourceId } from "@/shared";
 
-import {
-  ovenTransitionIssueIds,
-  scheduleForwardEarliest,
-} from "./forward-schedule";
-import { canReserve, reserve } from "./intervals";
+import { ovenTransitionIssueIds, scheduleForwardEarliest } from "./forward-schedule";
+import { findLatestResourceSlot, reserve } from "./intervals";
 import type { ResourceReservation } from "./intervals";
 import type {
   InfeasibleSchedule,
@@ -15,6 +12,11 @@ import type {
   ScheduledTask,
   ScheduleTask,
 } from "./types";
+import {
+  invalidRequestIssues,
+  isScheduleRequestContainer,
+  terminalSemanticsIssues,
+} from "./request-validation";
 import {
   resolveTaskResourceIds,
   topologicallySortTasks,
@@ -110,20 +112,22 @@ function findLatestSlot(
   resourceIds: ResourceId[],
 ) {
   const durationMs = task.durationMinutes * MINUTE_MS;
-  let consideredResourceSlot = false;
-  for (let endMs = deadlineMs; endMs - durationMs >= availableMs; endMs -= MINUTE_MS) {
-    const candidate = {
-      taskId: task.id,
-      startMs: endMs - durationMs,
-      endMs,
-      resourceIds,
-    };
-    if (resourceIds.length === 0 || canReserve(reservations, candidate)) {
-      return { slot: { startMs: candidate.startMs, endMs }, conflicted: false };
-    }
-    consideredResourceSlot = true;
+  if (resourceIds.length === 0) {
+    const startMs = deadlineMs - durationMs;
+    return startMs >= availableMs
+      ? { slot: { startMs, endMs: deadlineMs }, conflicted: false }
+      : { slot: null, conflicted: false };
   }
-  return { slot: null, conflicted: consideredResourceSlot };
+  const fitsWindow = deadlineMs - durationMs >= availableMs;
+  const slot = findLatestResourceSlot(reservations, {
+    taskId: task.id,
+    notBeforeMs: availableMs,
+    notAfterMs: deadlineMs,
+    durationMs,
+    stepMs: MINUTE_MS,
+    resourceIds,
+  });
+  return { slot, conflicted: fitsWindow && slot === null };
 }
 
 function stableTimeline(entries: readonly TimedTask[]) {
@@ -150,6 +154,7 @@ function reverseSchedule(
   request: ScheduleRequest,
   availableMs: number,
   serveMs: number,
+  preferredRanks?: ReadonlyMap<string, number>,
 ): { issues: ScheduleIssue[] } | { timeline: TimedTask[] } {
   const children = childMap(request.tasks);
   const scores = upstreamScores(request.tasks);
@@ -164,7 +169,16 @@ function reverseSchedule(
       .sort((left, right) => {
         const leftEnd = latestEnd(left, children, scheduled, serveMs);
         const rightEnd = latestEnd(right, children, scheduled, serveMs);
-        return rightEnd - leftEnd
+        const preferred = preferredRanks
+          ? (preferredRanks.get(right.id) ?? -1) - (preferredRanks.get(left.id) ?? -1)
+          : 0;
+        const terminalDuration = left.isTerminal && right.isTerminal
+          && leftEnd === rightEnd
+          ? left.durationMinutes - right.durationMinutes
+          : 0;
+        return preferred
+          || rightEnd - leftEnd
+          || terminalDuration
           || (scores.get(right.id) ?? 0) - (scores.get(left.id) ?? 0)
           || compareText(left.recipeId, right.recipeId)
           || compareText(left.id, right.id);
@@ -205,10 +219,16 @@ function reverseSchedule(
 }
 
 export function scheduleDinner(request: ScheduleRequest): ScheduleResult {
+  if (!isScheduleRequestContainer(request)) {
+    return { feasible: false, issues: invalidRequestIssues(), earliestFeasible: null };
+  }
   const graphIssues = validateTaskGraph(request.tasks, request.kitchen);
+  const terminalIssues = graphIssues.length === 0
+    ? terminalSemanticsIssues(request.tasks)
+    : [];
   const times = parseTimes(request);
-  if (graphIssues.length > 0 || times.issues.length > 0) {
-    return infeasible(request, [...times.issues, ...graphIssues], false);
+  if (graphIssues.length > 0 || terminalIssues.length > 0 || times.issues.length > 0) {
+    return infeasible(request, [...times.issues, ...graphIssues, ...terminalIssues], false);
   }
   const availableMs = times.availableMs!;
   const serveMs = times.serveMs!;
@@ -228,9 +248,25 @@ export function scheduleDinner(request: ScheduleRequest): ScheduleResult {
     );
   }
 
-  const attempt = reverseSchedule(request, availableMs, serveMs);
+  let attempt = reverseSchedule(request, availableMs, serveMs);
   if ("issues" in attempt) return infeasible(request, attempt.issues, true);
-  const ovenIssues = ovenTransitionIssueIds(attempt.timeline);
+  let ovenIssues = ovenTransitionIssueIds(attempt.timeline);
+  if (ovenIssues.length > 0) {
+    const forward = scheduleForwardEarliest(request);
+    if (forward.feasible) {
+      const preferredRanks = new Map(
+        forward.tasks.map((task, index) => [task.taskId, index]),
+      );
+      const retry = reverseSchedule(request, availableMs, serveMs, preferredRanks);
+      if (!("issues" in retry)) {
+        const retryOvenIssues = ovenTransitionIssueIds(retry.timeline);
+        if (retryOvenIssues.length === 0) {
+          attempt = retry;
+          ovenIssues = [];
+        }
+      }
+    }
+  }
   if (ovenIssues.length > 0) {
     return infeasible(
       request,

@@ -103,10 +103,21 @@ describe("scheduleForwardEarliest", () => {
   it("keeps an explicit cook lock on a passive task", () => {
     const tasks = [
       task("explicit-cook", {
+        recipeId: "meal",
         resources: [{ resourceId: "cook:1" }],
         durationMinutes: 10,
+        isTerminal: false,
       }),
-      task("active", { mode: "active", durationMinutes: 10 }),
+      task("active", {
+        recipeId: "meal",
+        mode: "active",
+        durationMinutes: 10,
+        isTerminal: false,
+      }),
+      task("serve", {
+        recipeId: "meal",
+        dependsOn: ["active", "explicit-cook"],
+      }),
     ];
     const scheduled = byId(scheduleForwardEarliest(request(tasks)));
     const firstEnd = toEpochMs(scheduled.get("active")!.plannedEnd);

@@ -240,9 +240,9 @@ describe("scheduleDinner", () => {
 
   it("distinguishes a fully occupied resource window from missing time capacity", () => {
     const result = scheduleDinner(request([
-      task("a", { mode: "active", durationMinutes: 10 }),
-      task("b", { mode: "active", durationMinutes: 10 }),
-    ], { serveAt: "2026-07-18T18:10:00Z" }));
+      task("a", { mode: "active", durationMinutes: 5 }),
+      task("b", { mode: "active", durationMinutes: 5 }),
+    ], { serveAt: "2026-07-18T18:05:00Z" }));
 
     expect(result).toMatchObject({
       feasible: false,
@@ -250,7 +250,7 @@ describe("scheduleDinner", () => {
         { code: "RESOURCE_CONFLICT", taskIds: ["b"] },
         { code: "WINDOW_INFEASIBLE", taskIds: ["b"] },
       ],
-      earliestFeasible: { serveAt: "2026-07-18T18:20:00.000Z" },
+      earliestFeasible: { serveAt: "2026-07-18T18:10:00.000Z" },
     });
   });
 

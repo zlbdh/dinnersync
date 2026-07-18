@@ -1,7 +1,7 @@
 import { fromEpochMs, parseIsoInstant, toEpochMs } from "@/shared";
 import type { ResourceId } from "@/shared";
 
-import { canReserve, reserve } from "./intervals";
+import { findEarliestResourceSlot, reserve } from "./intervals";
 import type { ResourceReservation } from "./intervals";
 import type {
   ScheduleIssue,
@@ -11,10 +11,16 @@ import type {
   ScheduleTask,
 } from "./types";
 import {
+  invalidRequestIssues,
+  isScheduleRequestContainer,
+  terminalSemanticsIssues,
+} from "./request-validation";
+import {
   resolveTaskResourceIds,
   topologicallySortTasks,
   validateTaskGraph,
 } from "./validate";
+import { alignTerminalWindow } from "./terminal-alignment";
 
 const MINUTE_MS = 60_000;
 
@@ -88,15 +94,14 @@ function findAvailableStart(
 ) {
   const durationMs = task.durationMinutes * MINUTE_MS;
   if (resourceIds.length === 0) return notBeforeMs;
-  for (let startMs = notBeforeMs; startMs + durationMs <= horizonMs; startMs += MINUTE_MS) {
-    if (canReserve(reservations, {
-      taskId: task.id,
-      startMs,
-      endMs: startMs + durationMs,
-      resourceIds,
-    })) return startMs;
-  }
-  return null;
+  return findEarliestResourceSlot(reservations, {
+    taskId: task.id,
+    notBeforeMs,
+    notAfterMs: horizonMs,
+    durationMs,
+    stepMs: MINUTE_MS,
+    resourceIds,
+  })?.startMs ?? null;
 }
 
 function stableTimeline(entries: readonly TimedTask[]): TimedTask[] {
@@ -104,6 +109,20 @@ function stableTimeline(entries: readonly TimedTask[]): TimedTask[] {
     left.startMs - right.startMs
     || left.endMs - right.endMs
     || compareText(left.task.id, right.task.id));
+}
+
+function currentOvenTemperature(entries: readonly TimedTask[]) {
+  const oven = stableTimeline(entries)
+    .filter((entry) => entry.resourceIds.includes("oven:1"));
+  return oven.at(-1)?.task.ovenTemperatureC ?? null;
+}
+
+function ovenPriority(task: ScheduleTask, currentTemperature: number | null) {
+  if (!resolveTaskResourceIds(task).includes("oven:1")) return 3;
+  if (task.ovenOperation === "cook" && task.ovenTemperatureC === currentTemperature) return 0;
+  if (currentTemperature === null && task.ovenOperation === "preheat") return 1;
+  if (task.ovenOperation === "preheat" || task.ovenOperation === "temperature-change") return 2;
+  return 4;
 }
 
 export function ovenTransitionIssueIds(
@@ -157,10 +176,17 @@ function toScheduledTask(entry: TimedTask): ScheduledTask | null {
 export function scheduleForwardEarliest(
   request: ScheduleRequest,
 ): ScheduleResult {
+  if (!isScheduleRequestContainer(request)) return invalidResult(invalidRequestIssues());
   const graphIssues = validateTaskGraph(request.tasks, request.kitchen);
+  const terminalIssues = graphIssues.length === 0
+    ? terminalSemanticsIssues(request.tasks)
+    : [];
   const times = parseRequestTimes(request);
-  const issues = [...times.issues, ...graphIssues];
+  const issues = [...times.issues, ...graphIssues, ...terminalIssues];
   if (issues.length > 0 || times.availableMs === undefined) return invalidResult(issues);
+  if (request.serveToleranceMinutes !== 5) {
+    return invalidResult([issue("WINDOW_INFEASIBLE", ["serveToleranceMinutes"])]);
+  }
 
   const durationMinutes = request.tasks.reduce(
     (sum, task) => sum + task.durationMinutes,
@@ -177,12 +203,15 @@ export function scheduleForwardEarliest(
   let reservations: ResourceReservation[] = [];
 
   while (remaining.size > 0) {
+    const currentTemperature = currentOvenTemperature([...scheduled.values()]);
     const ready = [...remaining.values()]
       .filter((task) => task.dependsOn.every((id) => scheduled.has(id)))
       .sort((left, right) => {
         const leftStart = earliestStart(left, scheduled, times.availableMs!);
         const rightStart = earliestStart(right, scheduled, times.availableMs!);
-        return leftStart - rightStart
+        return ovenPriority(left, currentTemperature) - ovenPriority(right, currentTemperature)
+          || Number(left.isTerminal) - Number(right.isTerminal)
+          || leftStart - rightStart
           || (scores.get(right.id) ?? 0) - (scores.get(left.id) ?? 0)
           || compareText(left.recipeId, right.recipeId)
           || compareText(left.id, right.id);
@@ -218,7 +247,17 @@ export function scheduleForwardEarliest(
     remaining.delete(task.id);
   }
 
-  const timeline = stableTimeline([...scheduled.values()]);
+  const timeline = alignTerminalWindow(
+    stableTimeline([...scheduled.values()]),
+    times.availableMs,
+    request.serveToleranceMinutes,
+  );
+  if (!timeline) {
+    return invalidResult([issue(
+      "WINDOW_INFEASIBLE",
+      request.tasks.filter((task) => task.isTerminal).map((task) => task.id),
+    )]);
+  }
   const ovenIssues = ovenTransitionIssueIds(timeline);
   if (ovenIssues.length > 0) {
     return invalidResult([issue("OVEN_TRANSITION_REQUIRED", ovenIssues)]);
@@ -226,8 +265,15 @@ export function scheduleForwardEarliest(
   const tasks = timeline.map(toScheduledTask);
   const terminalEnds = timeline
     .filter((entry) => entry.task.isTerminal)
-    .map((entry) => entry.endMs);
-  const serveMs = Math.max(...terminalEnds);
+    .map((entry) => ({ taskId: entry.task.id, endMs: entry.endMs }));
+  const serveMs = Math.max(...terminalEnds.map((entry) => entry.endMs));
+  const windowStart = serveMs - request.serveToleranceMinutes * MINUTE_MS;
+  const unsynchronized = terminalEnds
+    .filter((entry) => entry.endMs < windowStart)
+    .map((entry) => entry.taskId);
+  if (unsynchronized.length > 0) {
+    return invalidResult([issue("WINDOW_INFEASIBLE", unsynchronized)]);
+  }
   let serveAt: string;
   try {
     serveAt = fromEpochMs(serveMs);

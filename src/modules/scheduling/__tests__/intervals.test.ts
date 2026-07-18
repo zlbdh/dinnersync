@@ -1,7 +1,12 @@
 import type { ResourceId } from "@/shared";
 import { describe, expect, it, vi } from "vitest";
 
-import { canReserve, reserve } from "../intervals";
+import {
+  canReserve,
+  findEarliestResourceSlot,
+  findLatestResourceSlot,
+  reserve,
+} from "../intervals";
 import type { ResourceReservation } from "../intervals";
 
 const minute = (value: number) => value * 60_000;
@@ -85,5 +90,26 @@ describe("resource interval reservations", () => {
     } finally {
       clock.mockRestore();
     }
+  });
+
+  it("jumps across multi-billion-minute conflicts without scanning each minute", () => {
+    const horizonMinutes = 5_000_000_000;
+    const search = {
+      taskId: "candidate",
+      notBeforeMs: minute(0),
+      notAfterMs: minute(horizonMinutes),
+      durationMs: minute(1),
+      stepMs: minute(1),
+      resourceIds: ["oven:1" as const],
+    };
+    expect(findEarliestResourceSlot([
+      slot("busy", 0, horizonMinutes - 1, ["oven:1"]),
+    ], search)).toEqual({
+      startMs: minute(horizonMinutes - 1),
+      endMs: minute(horizonMinutes),
+    });
+    expect(findLatestResourceSlot([
+      slot("busy", 1, horizonMinutes, ["oven:1"]),
+    ], search)).toEqual({ startMs: minute(0), endMs: minute(1) });
   });
 });
