@@ -88,6 +88,11 @@ export function calculateNutrition(
   if (!Number.isSafeInteger(request.diners) || request.diners <= 0) {
     throw new RangeError("diners must be a positive safe integer");
   }
+  if (request.targetKcalPerPerson !== null
+    && (!Number.isFinite(request.targetKcalPerPerson)
+      || request.targetKcalPerPerson <= 0)) {
+    throw new RangeError("targetKcalPerPerson must be null or a positive finite number");
+  }
   const catalog = indexNutritionCatalog(request.catalog);
   let knownMealKcalRaw = 0;
   const unresolvedIngredientIds: string[] = [];

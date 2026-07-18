@@ -103,8 +103,14 @@ export function resolveWeight(input: WeightInput): WeightResolution {
   }
 
   const sourceGrams = roundWeight((input.quantity as number) * gramsPerInputUnit);
+  if (!Number.isFinite(sourceGrams) || sourceGrams <= 0) {
+    return unresolved(input, "weight-overflow");
+  }
   const plannedGrams = roundWeight(
     sourceGrams * input.targetServings / (input.sourceServings as number),
   );
+  if (!Number.isFinite(plannedGrams) || plannedGrams <= 0) {
+    return unresolved(input, "weight-overflow");
+  }
   return { resolved: true, sourceGrams, plannedGrams, original, conversionSource };
 }

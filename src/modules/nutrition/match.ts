@@ -1,5 +1,6 @@
 import type { FoodState } from "@/modules/recipe-import";
 
+import { indexNutritionCatalog } from "./catalog";
 import type {
   NutritionCandidate,
   NutritionMatchKind,
@@ -47,7 +48,7 @@ export function findNutritionCandidates(
   if (normalizedName === "") return [];
 
   const candidates = new Map<string, NutritionCandidate>();
-  for (const record of catalog) {
+  for (const record of indexNutritionCatalog(catalog).values()) {
     if (foodState !== undefined && record.foodState !== foodState) continue;
     const matchKind = classifyMatch(name, normalizedName, record);
     if (!matchKind) continue;

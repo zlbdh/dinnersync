@@ -32,7 +32,8 @@ export type UnresolvedWeight = {
     | "invalid-target-servings"
     | "invalid-unit"
     | "missing-volume-conversion"
-    | "unsupported-unit";
+    | "unsupported-unit"
+    | "weight-overflow";
   original: Pick<WeightInput, "quantity" | "unit">;
 };
 
