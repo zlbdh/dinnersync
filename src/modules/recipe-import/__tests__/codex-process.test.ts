@@ -53,6 +53,10 @@ function setupProcess(options: Partial<ProcessDouble> = {}, dependencyOverrides 
   const spawn = vi.fn(() => child);
   const forceKillTree = vi.fn(async () => child.finish(0));
   const runner = createCodexRunner({
+    checkCapability: vi.fn(async () => ({
+      ok: true,
+      value: { sandboxAvailable: true as const },
+    })),
     spawn,
     executable: "codex-test",
     forceKillTree,
@@ -64,13 +68,29 @@ function setupProcess(options: Partial<ProcessDouble> = {}, dependencyOverrides 
 }
 
 describe("Codex process termination", () => {
+  it("routes bounded stderr through the safe exit classifier", async () => {
+    const { child, runner, spawn } = setupProcess();
+    const pending = runner.run(request({ timeoutMs: 200 }));
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalledOnce());
+
+    child.stderr.write("Usage limit reached at C:\\private\\marker");
+    child.finish(1);
+
+    const error = await pending.catch((value) => value);
+    expect(error).toMatchObject({ code: "CODEX_QUOTA_EXCEEDED" });
+    expect(JSON.stringify(error)).not.toContain("private");
+  });
+
   it("does not confirm a fast direct-child close when tree termination fails", async () => {
     const forceKillTree = vi.fn().mockRejectedValue(new Error("tree action failed"));
-    const { runner } = setupProcess({ closeOnKill: true }, { forceKillTree });
+    const { child, runner } = setupProcess({ closeOnKill: true }, {
+      platform: "win32", forceKillTree,
+    });
 
     const error = await runner.run(request()).catch((value) => value);
 
     expect(forceKillTree).toHaveBeenCalledWith(4_242);
+    expect(child.killSignals).toEqual(["SIGKILL"]);
     expect(error).toMatchObject({
       code: "CODEX_TIMEOUT",
       diagnostics: ["FORCE_TERMINATION_FAILED", "FORCE_TERMINATION_UNCONFIRMED"],
@@ -78,18 +98,24 @@ describe("Codex process termination", () => {
     });
   });
 
-  it("waits for tree confirmation after the direct child has closed", async () => {
+  it("does not touch the root PID while Windows taskkill is pending", async () => {
     let confirmTree!: () => void;
     const forceKillTree = vi.fn(() => new Promise<void>((resolve) => { confirmTree = resolve; }));
-    const { runner } = setupProcess({ closeOnKill: true }, { forceKillTree });
+    const { child, runner } = setupProcess({}, {
+      platform: "win32",
+      forceKillTree,
+      forceConfirmationMs: 100,
+    });
     let settled = false;
     const observed = runner.run(request()).catch((value) => value);
     void observed.then(() => { settled = true; });
 
     await vi.waitFor(() => expect(forceKillTree).toHaveBeenCalledWith(4_242));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 275));
     expect(settled).toBe(false);
+    expect(child.killSignals).toEqual([]);
     confirmTree();
+    child.finish(0);
 
     await expect(observed).resolves.toMatchObject({
       code: "CODEX_TIMEOUT",
@@ -98,7 +124,7 @@ describe("Codex process termination", () => {
   });
 
   it("force-kills the process tree after SIGTERM is ignored", async () => {
-    const { child, forceKillTree, runner } = setupProcess();
+    const { child, forceKillTree, runner } = setupProcess({}, { platform: "linux" });
 
     const error = await runner.run(request()).catch((value) => value);
 
@@ -113,7 +139,10 @@ describe("Codex process termination", () => {
   });
 
   it("escalates immediately when graceful kill returns false", async () => {
-    const { forceKillTree, runner } = setupProcess({ killResult: false });
+    const { forceKillTree, runner } = setupProcess(
+      { killResult: false },
+      { platform: "linux" },
+    );
 
     const error = await runner.run(request()).catch((value) => value);
 
@@ -126,7 +155,7 @@ describe("Codex process termination", () => {
   });
 
   it("keeps the first termination reason when a later error event arrives", async () => {
-    const { runner } = setupProcess({ errorOnKill: true });
+    const { runner } = setupProcess({ errorOnKill: true }, { platform: "linux" });
 
     await expect(runner.run(request())).rejects.toMatchObject({
       code: "CODEX_TIMEOUT",

@@ -2,7 +2,7 @@ import {
   CodexRunnerError,
   createCodexRunner,
   VERIFIED_CODEX_MODELS,
-} from "../src/modules/recipe-import/index.ts";
+} from "../src/modules/recipe-import/codex-runner.ts";
 
 const DEFAULT_MODEL = "gpt-5.6-terra";
 const model = process.env.DINNERSYNC_CODEX_MODEL ?? DEFAULT_MODEL;

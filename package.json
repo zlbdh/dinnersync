@@ -16,6 +16,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:codex-real": "cross-env RUN_REAL_CODEX=1 vitest run tests/integration/codex-recipe-real.test.ts --testTimeout=150000",
+    "test:codex-real:full": "cross-env RUN_REAL_CODEX=1 DINNERSYNC_CODEX_MODEL=gpt-5.6-sol vitest run tests/integration/codex-recipe-real.test.ts --testTimeout=150000 && cross-env RUN_REAL_CODEX=1 DINNERSYNC_CODEX_MODEL=gpt-5.6-terra vitest run tests/integration/codex-recipe-real.test.ts --testTimeout=150000",
+    "test:codex-sandbox": "tsx scripts/codex-sandbox-gate.mjs",
     "test:e2e": "playwright test",
     "smoke:codex": "tsx scripts/codex-smoke.mjs",
     "check:files": "node scripts/check-file-lengths.mjs",
@@ -28,6 +30,7 @@
     "next": "16.2.10",
     "react": "19.2.7",
     "react-dom": "19.2.7",
+    "server-only": "0.0.1",
     "zod": "4.4.3"
   },
   "devDependencies": {
@@ -51,5 +54,10 @@
     "vite": "7.3.6",
     "vite-tsconfig-paths": "6.1.1",
     "vitest": "4.1.10"
+  },
+  "overrides": {
+    "next": {
+      "postcss": "8.5.10"
+    }
   }
 }

@@ -8,7 +8,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   CodexRunnerError,
   createCodexRunner,
-  resolveCodexExecutable,
 } from "../codex-runner";
 
 const strictSchema = {
@@ -87,8 +86,19 @@ function validRequest(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function testRunner(dependencies: Record<string, unknown> = {}) {
+  return createCodexRunner({
+    platform: "linux",
+    checkCapability: vi.fn(async () => ({
+      ok: true,
+      value: { sandboxAvailable: true as const },
+    })),
+    ...dependencies,
+  } as never);
+}
+
 describe("CodexRunner", () => {
-  it("uses the verified model unchanged with an isolated, read-only invocation", async () => {
+  it("uses the verified model unchanged with an isolated least-read invocation", async () => {
     const fake = fakeSpawn(async (child, call) => {
       const schemaIndex = call.args.indexOf("--output-schema");
       await expect(readFile(call.args[schemaIndex + 1], "utf8")).resolves.toBe(
@@ -98,7 +108,7 @@ describe("CodexRunner", () => {
       child.stdout.write("progress");
       child.finish(0);
     });
-    const runner = createCodexRunner({
+    const runner = testRunner({
       spawn: fake.spawn as never,
       executable: "C:\\safe\\codex.exe",
     });
@@ -108,11 +118,15 @@ describe("CodexRunner", () => {
     const call = fake.calls[0];
     expect(call.command).toBe("C:\\safe\\codex.exe");
     expect(call.args.slice(0, 3)).toEqual(["exec", "--model", "gpt-5.6-sol"]);
+    expect(call.args).not.toContain("--sandbox");
     expect(call.args).toEqual(expect.arrayContaining([
-      "--sandbox", "read-only", "--ephemeral", "--ignore-user-config",
-      "--ignore-rules", "--config", 'shell_environment_policy.inherit="none"',
-      "--strict-config", "--output-schema", "--output-last-message",
-      "--skip-git-repo-check", "--cd", "-",
+      "--ephemeral", "--ignore-user-config", "--ignore-rules",
+      "--config", 'default_permissions="dinnersync-local-ai"',
+      "--config", 'permissions.dinnersync-local-ai.filesystem.:root="deny"',
+      "--config", 'permissions.dinnersync-local-ai.network.enabled=false',
+      "--config", 'shell_environment_policy.inherit="none"',
+      "--config", 'approval_policy="never"', "--strict-config",
+      "--output-schema", "--output-last-message", "--skip-git-repo-check", "--cd", "-",
     ]));
     expect(call.options).toMatchObject({ shell: false, windowsHide: true });
     expect(call.options.cwd).toEqual(expect.any(String));
@@ -124,7 +138,7 @@ describe("CodexRunner", () => {
 
   it("rejects a model that was not verified without spawning", async () => {
     const fake = fakeSpawn(() => undefined);
-    const runner = createCodexRunner({ spawn: fake.spawn as never });
+    const runner = testRunner({ spawn: fake.spawn as never });
 
     await expect(runner.run(validRequest({ model: "gpt-4o" }))).rejects.toMatchObject({
       code: "CODEX_MODEL_NOT_VERIFIED",
@@ -137,14 +151,14 @@ describe("CodexRunner", () => {
       await writeFile(outputPath(call.args), '{"ok":true}', "utf8");
       child.finish(0);
     });
-    const runner = createCodexRunner({ spawn: fake.spawn as never });
+    const runner = testRunner({ spawn: fake.spawn as never });
 
     await expect(runner.run(Object.freeze(validRequest()))).resolves.toEqual({ ok: true });
   });
 
   it("preserves a primary error when isolated-directory cleanup also fails", async () => {
     const fake = fakeSpawn((child) => child.finish(7));
-    const runner = createCodexRunner({
+    const runner = testRunner({
       spawn: fake.spawn,
       removeDirectory: vi.fn(async (path, options) => {
         await rm(path, options);
@@ -166,7 +180,7 @@ describe("CodexRunner", () => {
       await writeFile(outputPath(call.args), '{"ok":true}', "utf8");
       child.finish(0);
     });
-    const runner = createCodexRunner({
+    const runner = testRunner({
       spawn: fake.spawn,
       removeDirectory: vi.fn(async (path, options) => {
         await rm(path, options);
@@ -188,7 +202,7 @@ describe("CodexRunner", () => {
       await rm(path, options);
       throw new Error("private path");
     });
-    const runner = createCodexRunner({ spawn: fake.spawn, removeDirectory } as never);
+    const runner = testRunner({ spawn: fake.spawn, removeDirectory });
     await expect(runner.run(validRequest())).rejects.toMatchObject({
       code: "CODEX_INVALID_OUTPUT", diagnostics: ["TEMP_CLEANUP_FAILED"],
     });
@@ -199,7 +213,7 @@ describe("CodexRunner", () => {
       child.stderr.write("sensitive-stderr-marker");
       child.finish(9);
     });
-    const runner = createCodexRunner({ spawn: fake.spawn as never });
+    const runner = testRunner({ spawn: fake.spawn as never });
 
     const error = await runner.run(validRequest()).catch((value) => value);
     expect(error).toBeInstanceOf(CodexRunnerError);
@@ -209,7 +223,7 @@ describe("CodexRunner", () => {
 
   it("terminates a timed-out child", async () => {
     const fake = fakeSpawn(() => undefined);
-    const runner = createCodexRunner({ spawn: fake.spawn as never });
+    const runner = testRunner({ spawn: fake.spawn as never });
 
     await expect(runner.run(validRequest({ timeoutMs: 10 }))).rejects.toMatchObject({
       code: "CODEX_TIMEOUT",
@@ -219,7 +233,7 @@ describe("CodexRunner", () => {
 
   it("terminates a child when the AbortSignal is cancelled", async () => {
     const fake = fakeSpawn(() => undefined);
-    const runner = createCodexRunner({ spawn: fake.spawn as never });
+    const runner = testRunner({ spawn: fake.spawn as never });
     const controller = new AbortController();
     const pending = runner.run(validRequest({ signal: controller.signal }));
 
@@ -232,7 +246,7 @@ describe("CodexRunner", () => {
 
   it("rejects a successful process that produced no result", async () => {
     const fake = fakeSpawn((child) => child.finish(0));
-    const runner = createCodexRunner({ spawn: fake.spawn as never });
+    const runner = testRunner({ spawn: fake.spawn as never });
 
     await expect(runner.run(validRequest())).rejects.toMatchObject({
       code: "CODEX_NO_OUTPUT",
@@ -245,7 +259,7 @@ describe("CodexRunner", () => {
       child.finish(0);
     });
 
-    await expect(createCodexRunner({ spawn: fake.spawn as never }).run(
+    await expect(testRunner({ spawn: fake.spawn as never }).run(
       validRequest(),
     )).rejects.toMatchObject({ code: "CODEX_INVALID_OUTPUT" });
   });
@@ -259,42 +273,28 @@ describe("CodexRunner", () => {
       child.stdout.write("x".repeat(101));
     });
 
-    await expect(createCodexRunner({ spawn: fileFake.spawn as never }).run(
+    await expect(testRunner({ spawn: fileFake.spawn as never }).run(
       validRequest({ maxOutputBytes: 64 }),
     )).rejects.toMatchObject({ code: "CODEX_OUTPUT_TOO_LARGE" });
-    await expect(createCodexRunner({ spawn: streamFake.spawn as never }).run(
+    await expect(testRunner({ spawn: streamFake.spawn as never }).run(
       validRequest({ maxOutputBytes: 64 }),
     )).rejects.toMatchObject({ code: "CODEX_OUTPUT_TOO_LARGE" });
     expect(streamFake.child?.killedWith).toBe("SIGTERM");
   });
-});
 
-describe("resolveCodexExecutable", () => {
-  it("selects the native Windows executable instead of the cmd shim", () => {
-    expect(resolveCodexExecutable({
-      platform: "win32",
-      arch: "x64",
-      env: { APPDATA: "C:\\Users\\demo\\AppData\\Roaming" },
-    })).toMatch(/codex-win32-x64[\\/]vendor[\\/]x86_64-pc-windows-msvc[\\/]bin[\\/]codex\.exe$/);
-  });
+  it("fails before creating or spawning a model process when isolation is unavailable", async () => {
+    const fake = fakeSpawn(() => undefined);
+    const runner = createCodexRunner({
+      spawn: fake.spawn as never,
+      checkCapability: vi.fn(async () => ({
+        ok: false,
+        error: { code: "SANDBOX_UNAVAILABLE", message: "private detail" },
+      })),
+    } as never);
 
-  it("uses codex directly on non-Windows systems", () => {
-    expect(resolveCodexExecutable({ platform: "linux", arch: "x64", env: {} })).toBe("codex");
-  });
-
-  it("rejects Windows discovery without APPDATA", () => {
-    expect(() => resolveCodexExecutable({
-      platform: "win32",
-      arch: "x64",
-      env: {},
-    })).toThrow(expect.objectContaining({ code: "CODEX_SPAWN_FAILED" }));
-  });
-
-  it("rejects an unsupported Windows architecture", () => {
-    expect(() => resolveCodexExecutable({
-      platform: "win32",
-      arch: "ia32",
-      env: { APPDATA: "C:\\Users\\demo\\AppData\\Roaming" },
-    })).toThrow(expect.objectContaining({ code: "CODEX_SPAWN_FAILED" }));
+    await expect(runner.run(validRequest())).rejects.toMatchObject({
+      code: "CODEX_SANDBOX_UNAVAILABLE",
+    });
+    expect(fake.spawn).not.toHaveBeenCalled();
   });
 });

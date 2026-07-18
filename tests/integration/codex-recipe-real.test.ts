@@ -4,16 +4,20 @@ import { describe, expect, test } from "vitest";
 
 import {
   aiRecipeDraftJsonSchema,
-  createCodexRunner,
   parseAiRecipeDraft,
-  VERIFIED_CODEX_MODELS,
 } from "@/modules/recipe-import";
 import type {
-  CodexRunRequest,
   RecipeDraft,
   ReviewValue,
-  VerifiedCodexModel,
 } from "@/modules/recipe-import";
+import {
+  runCodexImport,
+} from "@/modules/recipe-import/codex-import";
+import { VERIFIED_CODEX_MODELS } from "@/modules/recipe-import/codex-types";
+import type {
+  CodexRunRequest,
+  VerifiedCodexModel,
+} from "@/modules/recipe-import/codex-types";
 
 const ORIGINAL_RECIPE = [
   "Pantry Tomato Toast (serves 1)",
@@ -208,9 +212,22 @@ describe("RecipeDraft Codex business gate", () => {
     { timeout: REAL_TEST_TIMEOUT_MS },
     async () => {
       const model = explicitModel();
-      const draft = await createCodexRunner().run(recipeRequest(model));
+      const result = await runCodexImport({
+        recipes: [ORIGINAL_RECIPE],
+        model,
+        timeoutMs: 120_000,
+      });
       expect(model).toBe(process.env.DINNERSYNC_CODEX_MODEL);
-      assertBusinessContract(draft);
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error(`Real Codex gate failed safely: ${result.error.code}`);
+      expect(result.value).toMatchObject({
+        provider: "openai-codex-cli",
+        model,
+        schemaValidated: true,
+        evidenceValidated: true,
+      });
+      expect(result.value.drafts).toHaveLength(1);
+      assertBusinessContract(result.value.drafts[0]);
     },
   );
 });

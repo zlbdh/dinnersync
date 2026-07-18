@@ -1,10 +1,12 @@
 import { stat as nodeStat } from "node:fs/promises";
 import type { Readable, Writable } from "node:stream";
 
+import { createCodexExitClassifier } from "./codex-exit-classifier";
 import {
   CodexRunnerError,
   type NormalizedCodexRunRequest,
 } from "./codex-types";
+import { buildCodexExecArguments } from "./codex-permissions";
 import type { ForceKillTree } from "./codex-process-tree";
 
 export { createForceKillTree } from "./codex-process-tree";
@@ -45,7 +47,7 @@ export async function runCodexProcess<T>(
   dependencies: CodexProcessDependencies,
 ) {
   if (request.signal?.aborted) throw abortedError();
-  const args = buildArguments(request.model, directory, schemaPath, resultPath);
+  const args = buildCodexExecArguments(request.model, directory, schemaPath, resultPath);
   let child: CodexChild;
   try {
     child = dependencies.spawn(executable, args, {
@@ -75,6 +77,7 @@ async function waitForProcess<T>(
     let monitorTimer: ReturnType<typeof setTimeout> | undefined;
     let terminationTimer: ReturnType<typeof setTimeout> | undefined;
     let finalTimer: ReturnType<typeof setTimeout> | undefined;
+    const exitClassifier = createCodexExitClassifier();
 
     const clearTimers = () => {
       for (const timer of [timeoutTimer, monitorTimer, terminationTimer, finalTimer]) {
@@ -122,6 +125,11 @@ async function waitForProcess<T>(
         finalTimer = setTimeout(finishUnconfirmed, dependencies.forceConfirmationMs);
       }
     };
+    const scheduleCloseConfirmation = () => {
+      if (!settled && !finalTimer) {
+        finalTimer = setTimeout(finishUnconfirmed, dependencies.forceConfirmationMs);
+      }
+    };
     const maybeFinishTermination = () => {
       if (!terminationReason || settled || treeState === "idle" || treeState === "pending") return;
       if (treeState === "succeeded" && childClosed) {
@@ -133,10 +141,17 @@ async function waitForProcess<T>(
       }
     };
     const failTreeTermination = () => {
-      if (settled) return;
+      if (settled || treeState !== "pending") return;
       treeState = "failed";
       terminationReason?.addDiagnostic("FORCE_TERMINATION_FAILED");
+      if (dependencies.platform === "win32" && !childClosed) forceDirectChild();
+      else maybeFinishTermination();
+    };
+    const succeedTreeTermination = () => {
+      if (settled || treeState !== "pending") return;
+      treeState = "succeeded";
       maybeFinishTermination();
+      if (dependencies.platform === "win32" && !childClosed) scheduleCloseConfirmation();
     };
     const startTreeTermination = () => {
       if (!terminationReason || settled || treeState !== "idle") return undefined;
@@ -157,9 +172,13 @@ async function waitForProcess<T>(
       if (terminationReason || settled) return;
       terminationReason = reason;
       if (monitorTimer) clearTimeout(monitorTimer);
-      terminationTimer = setTimeout(forceDirectChild, dependencies.forceConfirmationMs);
       const treeAction = startTreeTermination();
       if (settled) return;
+      if (dependencies.platform === "win32") {
+        void treeAction?.then(succeedTreeTermination, failTreeTermination);
+        return;
+      }
+      terminationTimer = setTimeout(forceDirectChild, dependencies.forceConfirmationMs);
       let accepted = false;
       try {
         accepted = child.kill("SIGTERM");
@@ -169,11 +188,7 @@ async function waitForProcess<T>(
       if (!accepted) {
         reason.addDiagnostic("GRACEFUL_TERMINATION_FAILED");
       }
-      void treeAction?.then(() => {
-        if (settled) return;
-        treeState = "succeeded";
-        maybeFinishTermination();
-      }, failTreeTermination);
+      void treeAction?.then(succeedTreeTermination, failTreeTermination);
     };
     const onAbort = () => terminate(abortedError());
     const onError = () => {
@@ -186,11 +201,7 @@ async function waitForProcess<T>(
         childClosed = true;
         maybeFinishTermination();
       } else if (exitCode !== 0) {
-        finish(new CodexRunnerError(
-          "CODEX_EXIT_FAILED",
-          "Codex exited before producing a valid result.",
-          exitCode ?? undefined,
-        ));
+        finish(exitClassifier.error(exitCode));
       } else finish();
     };
     const countStream = () => {
@@ -215,7 +226,11 @@ async function waitForProcess<T>(
       }
     };
     const stdoutCounter = countStream();
-    const stderrCounter = countStream();
+    const countStderr = countStream();
+    const stderrCounter = (chunk: Buffer | string) => {
+      countStderr(chunk);
+      exitClassifier.add(chunk);
+    };
     const onStdinError = () => undefined;
     const timeoutTimer = setTimeout(() => terminate(timeoutError()), request.timeoutMs);
 
@@ -229,16 +244,6 @@ async function waitForProcess<T>(
     if (request.signal?.aborted) onAbort();
     if (!settled) child.stdin.end(request.prompt, "utf8");
   });
-}
-
-function buildArguments(model: string, directory: string, schemaPath: string, resultPath: string) {
-  return [
-    "exec", "--model", model, "--sandbox", "read-only", "--ephemeral",
-    "--ignore-user-config", "--ignore-rules",
-    "--config", 'shell_environment_policy.inherit="none"', "--strict-config",
-    "--output-schema", schemaPath, "--output-last-message", resultPath,
-    "--color", "never", "--skip-git-repo-check", "--cd", directory, "-",
-  ];
 }
 
 function spawnError() {

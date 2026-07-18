@@ -19,6 +19,23 @@ function everyObjectIsClosed(value: unknown): boolean {
   return Object.values(record).every(everyObjectIsClosed);
 }
 
+function unboundedSchemaPaths(value: unknown, path = "$", found: string[] = []): string[] {
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => unboundedSchemaPaths(entry, `${path}[${index}]`, found));
+    return found;
+  }
+  if (typeof value !== "object" || value === null) return found;
+  const record = value as Record<string, unknown>;
+  if (record.type === "array" && typeof record.maxItems !== "number") found.push(`${path}:array`);
+  if (record.type === "string"
+    && !Array.isArray(record.enum)
+    && !Object.hasOwn(record, "const")
+    && typeof record.maxLength !== "number") found.push(`${path}:string`);
+  Object.entries(record).forEach(([key, entry]) =>
+    unboundedSchemaPaths(entry, `${path}.${key}`, found));
+  return found;
+}
+
 describe("RecipeDraft AI schema", () => {
   test("exports a parseable strict schema", () => {
     expect(api.aiRecipeDraftSchema).toBeDefined();
@@ -28,6 +45,33 @@ describe("RecipeDraft AI schema", () => {
   test("emits recursively closed JSON Schema objects", () => {
     expect(api.aiRecipeDraftJsonSchema).toBeDefined();
     expect(everyObjectIsClosed(api.aiRecipeDraftJsonSchema)).toBe(true);
+  });
+
+  test("emits maximum lengths and item counts for every free string and array", () => {
+    expect(unboundedSchemaPaths(api.aiRecipeDraftJsonSchema)).toEqual([]);
+  });
+
+  test("rejects oversized nested output before producing an unbounded issue list", () => {
+    const draft = makeAiDraft();
+    draft.ingredients = Array.from({ length: 100_000 }, () => ({ bad: true })) as never;
+
+    const result = recipeImport.parseAiRecipeDraft(draft, draft.sourceText);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.length).toBeGreaterThan(0);
+      expect(result.error.length).toBeLessThanOrEqual(128);
+    }
+  });
+
+  test("rejects strings and domain arrays beyond their explicit limits", () => {
+    const longId = makeAiDraft();
+    longId.id = "x".repeat(97);
+    const dependencies = makeAiDraft();
+    dependencies.steps[0].dependsOn.value = Array.from({ length: 129 }, (_, index) => `s${index}`);
+
+    expect(api.aiRecipeDraftSchema.safeParse(longId).success).toBe(false);
+    expect(api.aiRecipeDraftSchema.safeParse(dependencies).success).toBe(false);
   });
 
   test.each([

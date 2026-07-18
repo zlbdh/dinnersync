@@ -2,9 +2,29 @@ import type { Result } from "@/shared";
 import { z } from "zod";
 
 import { validateRecipeDraftEvidence } from "./evidence";
+import {
+  MAX_DEPENDENCIES,
+  MAX_IDENTIFIER_CHARS,
+  MAX_INFERENCE_REASON_CHARS,
+  MAX_INGREDIENTS,
+  MAX_INSTRUCTION_CHARS,
+  MAX_NAME_CHARS,
+  MAX_RECIPE_CHARS,
+  MAX_RESOURCES,
+  MAX_REVIEW_ISSUES,
+  MAX_STEPS,
+  MAX_UNIT_CHARS,
+  findOutputBoundaryViolation,
+} from "./limits";
 import type { RecipeDraft, ReviewIssue } from "./types";
 
-const nonBlankText = z.string().min(1).refine((value) => value.trim().length > 0);
+const boundedText = (max: number) => z.string().max(max);
+const nonBlankText = (max: number) => boundedText(max)
+  .min(1)
+  .refine((value) => value.trim().length > 0);
+const identifier = nonBlankText(MAX_IDENTIFIER_CHARS)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
+const sourceText = nonBlankText(MAX_RECIPE_CHARS);
 const positiveNumber = z.number().finite().positive();
 const nullablePositiveNumber = positiveNumber.nullable();
 const nullableTemperature = z.number().finite().min(-100).max(1_000).nullable();
@@ -14,7 +34,7 @@ const aiStatusSchema = z.literal("needs-review");
 const evidenceSpanSchema = z.strictObject({
   start: z.number().int().nonnegative(),
   end: z.number().int().nonnegative(),
-  text: z.string().min(1),
+  text: boundedText(MAX_RECIPE_CHARS).min(1),
 });
 
 const resourceRequirementSchema = z.strictObject({
@@ -26,7 +46,7 @@ function reviewValueSchema<T extends z.ZodType>(value: T, status: z.ZodType) {
     value,
     provenance: z.enum(["source", "inferred"]),
     evidence: evidenceSpanSchema.nullable(),
-    inferenceReason: z.string().nullable(),
+    inferenceReason: boundedText(MAX_INFERENCE_REASON_CHARS).nullable(),
     confidence: z.number().finite().min(0).max(1),
     status,
   }).superRefine((review, context) => {
@@ -59,32 +79,32 @@ function reviewValueSchema<T extends z.ZodType>(value: T, status: z.ZodType) {
 function createRecipeDraftSchema(status: z.ZodType) {
   const review = <T extends z.ZodType>(value: T) => reviewValueSchema(value, status);
   const ingredient = z.strictObject({
-    id: nonBlankText,
-    sourceText: nonBlankText,
-    name: review(nonBlankText),
+    id: identifier,
+    sourceText,
+    name: review(nonBlankText(MAX_NAME_CHARS)),
     quantity: review(nullablePositiveNumber),
-    unit: review(nonBlankText.nullable()),
+    unit: review(nonBlankText(MAX_UNIT_CHARS).nullable()),
     foodState: review(z.enum(["raw", "cooked", "other"]).nullable()),
   });
   const step = z.strictObject({
-    id: nonBlankText,
-    sourceText: nonBlankText,
-    instruction: review(nonBlankText),
+    id: identifier,
+    sourceText,
+    instruction: review(nonBlankText(MAX_INSTRUCTION_CHARS)),
     durationMinutes: review(positiveNumber),
     mode: review(z.enum(["active", "passive"])),
-    dependsOn: review(z.array(nonBlankText)),
-    resources: review(z.array(resourceRequirementSchema)),
+    dependsOn: review(z.array(identifier).max(MAX_DEPENDENCIES)),
+    resources: review(z.array(resourceRequirementSchema).max(MAX_RESOURCES)),
     ovenOperation: review(z.enum(["preheat", "cook", "temperature-change"]).nullable()),
     ovenTemperatureC: review(nullableTemperature),
     isTerminal: review(z.boolean()),
   });
   return z.strictObject({
-    id: nonBlankText,
-    sourceText: nonBlankText,
-    name: review(nonBlankText),
+    id: identifier,
+    sourceText,
+    name: review(nonBlankText(MAX_NAME_CHARS)),
     sourceServings: review(nullablePositiveNumber),
-    ingredients: z.array(ingredient),
-    steps: z.array(step),
+    ingredients: z.array(ingredient).max(MAX_INGREDIENTS),
+    steps: z.array(step).max(MAX_STEPS),
   });
 }
 
@@ -105,11 +125,22 @@ function parseWithSchema(
   value: unknown,
   expectedSourceText?: string,
 ): Result<RecipeDraft, ReviewIssue[]> {
+  const boundary = findOutputBoundaryViolation(value);
+  if (boundary) {
+    return {
+      ok: false,
+      error: [{
+        path: boundary.path,
+        code: "OUTPUT_BOUNDARY_EXCEEDED",
+        message: boundary.message,
+      }],
+    };
+  }
   const parsed = schema.safeParse(value);
   if (!parsed.success) {
     return {
       ok: false,
-      error: parsed.error.issues.map((entry) => ({
+      error: parsed.error.issues.slice(0, MAX_REVIEW_ISSUES).map((entry) => ({
         path: zodPath(entry.path),
         code: "SCHEMA_INVALID",
         message: entry.message,
@@ -127,7 +158,10 @@ function parseWithSchema(
       }],
     };
   }
-  return validateRecipeDraftEvidence(draft);
+  const evidence = validateRecipeDraftEvidence(draft);
+  return evidence.ok
+    ? evidence
+    : { ok: false, error: evidence.error.slice(0, MAX_REVIEW_ISSUES) };
 }
 
 export function parseAiRecipeDraft(value: unknown, expectedSourceText: string) {

@@ -5,6 +5,10 @@ import { join } from "node:path";
 
 import { resolveCodexExecutable } from "./codex-executable";
 import {
+  checkLocalAiCapability,
+  type LocalAiCapabilityResult,
+} from "./codex-capability";
+import {
   readCodexResult,
   type ResultReaderDependencies,
 } from "./codex-output";
@@ -37,6 +41,7 @@ type RunnerDependencies = {
   removeDirectory?: RemoveDirectory;
   forceConfirmationMs?: number;
   resultMonitorIntervalMs?: number;
+  checkCapability?: () => Promise<LocalAiCapabilityResult>;
 };
 
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -48,6 +53,7 @@ export function createCodexRunner(dependencies: RunnerDependencies = {}) {
   const spawn = dependencies.spawn ?? (nodeSpawn as unknown as SpawnCodex);
   const executable = dependencies.executable ?? resolveCodexExecutable();
   const removeDirectory = dependencies.removeDirectory ?? rm;
+  const checkCapability = dependencies.checkCapability ?? checkLocalAiCapability;
   const processDependencies = {
     spawn,
     platform,
@@ -60,6 +66,13 @@ export function createCodexRunner(dependencies: RunnerDependencies = {}) {
   return {
     async run<T>(request: CodexRunRequest<T>): Promise<T> {
       const normalized = normalizeRequest(request);
+      let capability: LocalAiCapabilityResult;
+      try {
+        capability = await checkCapability();
+      } catch {
+        throw sandboxUnavailableError();
+      }
+      if (!capability.ok) throw sandboxUnavailableError();
       let directory: string;
       try {
         directory = await mkdtemp(join(tmpdir(), "dinnersync-codex-"));
@@ -150,6 +163,13 @@ function workspaceError() {
   return new CodexRunnerError(
     "CODEX_SPAWN_FAILED",
     "The isolated Codex workspace could not be prepared.",
+  );
+}
+
+function sandboxUnavailableError() {
+  return new CodexRunnerError(
+    "CODEX_SANDBOX_UNAVAILABLE",
+    "The local Codex sandbox did not prove the required isolation.",
   );
 }
 
