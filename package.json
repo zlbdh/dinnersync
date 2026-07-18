@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:codex-real": "cross-env RUN_REAL_CODEX=1 vitest run tests/integration/codex-recipe-real.test.ts --testTimeout=150000",
     "test:e2e": "playwright test",
     "smoke:codex": "tsx scripts/codex-smoke.mjs",
     "check:files": "node scripts/check-file-lengths.mjs",
