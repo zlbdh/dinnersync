@@ -142,11 +142,24 @@ function validateBatch(value: unknown, recipes: readonly string[]): BatchValidat
     return { valid: false, code: "INVALID_MODEL_OUTPUT" };
   }
   const drafts: RecipeDraft[] = [];
+  // Per-draft validity cannot guarantee that identities are unique across the batch.
+  const recipeIds = new Set<string>();
+  const stepIds = new Set<string>();
   for (let index = 0; index < recipes.length; index += 1) {
     const parsed = parseAiRecipeDraft(batch.data.drafts[index], recipes[index]);
     if (!parsed.ok) {
       return { valid: false, code: evidenceFailure(parsed.error) };
     }
+    if (recipeIds.has(parsed.value.id)) {
+      return { valid: false, code: "INVALID_MODEL_OUTPUT" };
+    }
+    for (const step of parsed.value.steps) {
+      if (stepIds.has(step.id)) {
+        return { valid: false, code: "INVALID_MODEL_OUTPUT" };
+      }
+      stepIds.add(step.id);
+    }
+    recipeIds.add(parsed.value.id);
     drafts.push(parsed.value);
   }
   return { valid: true, drafts };

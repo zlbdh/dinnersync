@@ -113,8 +113,13 @@ export function dinnerPlannerReducer(
     return { ...state, stage: "cook", session: structuredClone(action.session) };
   }
   if (action.type === "STAGE_CHANGED") {
-    if (state.stage === "setup" && action.stage === "review") {
-      return { ...state, stage: "review" };
+    if (state.stage === "setup" && action.stage === "review"
+      && state.reviewStates.length > 0) {
+      return {
+        ...state,
+        stage: "review",
+        reviewStates: state.reviewStates.map((review) => structuredClone(review)),
+      };
     }
     if (state.stage === "cook" && action.stage === "summary"
       && canFinishCooking(state)) return { ...state, stage: "summary" };

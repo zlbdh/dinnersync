@@ -5,6 +5,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 import "./globals.css";
+import "./review.css";
 
 export const metadata: Metadata = {
   title: "DinnerSync — One finish line for dinner",

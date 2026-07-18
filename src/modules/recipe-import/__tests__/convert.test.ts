@@ -22,6 +22,7 @@ type ConvertResult = { ok: true; value: Record<string, unknown> } | {
 };
 type ConvertApi = {
   convertDraftToRecipe(state: ReviewState): ConvertResult;
+  recipeReviewReducer(state: ReviewState, action: Record<string, unknown>): ReviewState;
 };
 
 const api = recipeImport as typeof recipeImport & ConvertApi;
@@ -110,6 +111,20 @@ describe("Draft to Recipe conversion", () => {
     expect(recipe.steps[0].resources[0]).not.toBe(
       (state.draft.steps[0].resources.value as object[])[0],
     );
+  });
+
+  test("converts a locally edited field while stripping its internal marker", () => {
+    const edited = api.recipeReviewReducer(makeReadyState(), {
+      type: "edit-field",
+      target: { scope: "recipe", field: "name" },
+      value: "Weeknight pasta",
+    });
+
+    const result = api.convertDraftToRecipe(edited);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.name).toBe("Weeknight pasta");
+    expect(JSON.stringify(result.value)).not.toContain("editedByUser");
   });
 
   test.each([

@@ -114,4 +114,26 @@ describe("planless dinner planner snapshot validation", () => {
     corrupt(review);
     expectRecovered({ ...reviewSnapshot(), reviewStates: [review] });
   });
+
+  it("resets review snapshots with duplicate recipe ids across states", () => {
+    const first = structuredClone(DEMO_REVIEW_STATES[0]);
+    const second = structuredClone(DEMO_REVIEW_STATES[1]);
+    second.draft.id = first.draft.id;
+
+    expectRecovered({
+      ...reviewSnapshot(),
+      reviewStates: [first, second],
+    });
+  });
+
+  it("resets review snapshots with duplicate step ids across states", () => {
+    const first = structuredClone(DEMO_REVIEW_STATES[0]);
+    const second = structuredClone(DEMO_REVIEW_STATES[1]);
+    second.draft.steps[0].id = first.draft.steps[0].id;
+
+    expectRecovered({
+      ...reviewSnapshot(),
+      reviewStates: [first, second],
+    });
+  });
 });

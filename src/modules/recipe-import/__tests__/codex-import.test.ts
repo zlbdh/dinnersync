@@ -17,6 +17,15 @@ function fakeRunner(
   return { run };
 }
 
+function remapStepIds(draft: ReturnType<typeof makeAiDraft>, suffix: string) {
+  const ids = new Map(draft.steps.map((step) => [step.id, `${step.id}${suffix}`]));
+  for (const step of draft.steps) {
+    step.id = ids.get(step.id)!;
+    const dependencies = step.dependsOn.value as string[];
+    step.dependsOn.value = dependencies.map((id) => ids.get(id) ?? id);
+  }
+}
+
 describe("runCodexImport", () => {
   it("fails closed for a malformed runtime request", async () => {
     const runSpy = vi.fn();
@@ -97,6 +106,73 @@ describe("runCodexImport", () => {
 
     await expect(run({ recipes: [RECIPE_SOURCE], model: "gpt-5.6-sol" }))
       .resolves.toMatchObject({ ok: false, error: { code: "INVALID_MODEL_OUTPUT" } });
+  });
+
+  it("rejects duplicate recipe ids across an otherwise valid batch", async () => {
+    const first = makeAiDraft();
+    const second = structuredClone(first);
+    remapStepIds(second, "-second");
+    const run = createCodexImportService(fakeRunner(async (request) =>
+      request.validate({ drafts: [first, second] })));
+
+    const result = await run({
+      recipes: [RECIPE_SOURCE, RECIPE_SOURCE],
+      model: "gpt-5.6-terra",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        code: "INVALID_MODEL_OUTPUT",
+        message: "Codex returned invalid structured output.",
+        diagnostics: [],
+      },
+    });
+    expect(result).not.toHaveProperty("value");
+    expect(JSON.stringify(result)).not.toContain(RECIPE_SOURCE);
+  });
+
+  it("accepts a valid batch with unique recipe and global step ids", async () => {
+    const first = makeAiDraft();
+    const second = structuredClone(first);
+    second.id = "recipe-2";
+    remapStepIds(second, "-second");
+    const run = createCodexImportService(fakeRunner(async (request) =>
+      request.validate({ drafts: [first, second] })));
+
+    const result = await run({
+      recipes: [RECIPE_SOURCE, RECIPE_SOURCE],
+      model: "gpt-5.6-terra",
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      value: { drafts: [{ id: first.id }, { id: second.id }] },
+    });
+  });
+
+  it("rejects duplicate step ids across recipes in one batch", async () => {
+    const first = makeAiDraft();
+    const second = structuredClone(first);
+    second.id = "recipe-2";
+    const run = createCodexImportService(fakeRunner(async (request) =>
+      request.validate({ drafts: [first, second] })));
+
+    const result = await run({
+      recipes: [RECIPE_SOURCE, RECIPE_SOURCE],
+      model: "gpt-5.6-terra",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        code: "INVALID_MODEL_OUTPUT",
+        message: "Codex returned invalid structured output.",
+        diagnostics: [],
+      },
+    });
+    expect(result).not.toHaveProperty("value");
+    expect(JSON.stringify(result)).not.toContain(RECIPE_SOURCE);
   });
 
   it("does not issue validation metadata for a non-strict batch envelope", async () => {

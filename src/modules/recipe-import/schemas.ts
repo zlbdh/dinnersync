@@ -22,8 +22,8 @@ const boundedText = (max: number) => z.string().max(max);
 const nonBlankText = (max: number) => boundedText(max)
   .min(1)
   .refine((value) => value.trim().length > 0);
-const identifier = nonBlankText(MAX_IDENTIFIER_CHARS)
-  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/);
+const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+const identifier = nonBlankText(MAX_IDENTIFIER_CHARS).regex(IDENTIFIER_PATTERN);
 const sourceText = nonBlankText(MAX_RECIPE_CHARS);
 const positiveNumber = z.number().finite().positive();
 const nullablePositiveNumber = positiveNumber.nullable();
@@ -41,15 +41,23 @@ const resourceRequirementSchema = z.strictObject({
   resourceId: z.enum(["cook:1", "oven:1", "burner:1", "burner:2"]),
 });
 
-function reviewValueSchema<T extends z.ZodType>(value: T, status: z.ZodType) {
-  return z.strictObject({
+function reviewValueSchema<T extends z.ZodType>(
+  value: T,
+  status: z.ZodType,
+  allowUserEditMarker: boolean,
+) {
+  const baseShape = {
     value,
     provenance: z.enum(["source", "inferred"]),
     evidence: evidenceSpanSchema.nullable(),
     inferenceReason: boundedText(MAX_INFERENCE_REASON_CHARS).nullable(),
     confidence: z.number().finite().min(0).max(1),
     status,
-  }).superRefine((review, context) => {
+  };
+  const schema = allowUserEditMarker
+    ? z.strictObject({ ...baseShape, editedByUser: z.literal(true).optional() })
+    : z.strictObject(baseShape);
+  return schema.superRefine((review, context) => {
     if (review.provenance === "source") {
       if (review.evidence === null) {
         context.addIssue({ code: "custom", path: ["evidence"], message: "Source evidence is required." });
@@ -73,11 +81,23 @@ function reviewValueSchema<T extends z.ZodType>(value: T, status: z.ZodType) {
         });
       }
     }
+    if ("editedByUser" in review && review.editedByUser === true
+      && (review.status !== "confirmed"
+        || review.provenance !== "inferred"
+        || review.evidence !== null
+        || review.confidence !== 1)) {
+      context.addIssue({
+        code: "custom",
+        path: ["editedByUser"],
+        message: "A user edit must be confirmed inferred data without source evidence.",
+      });
+    }
   });
 }
 
-function createRecipeDraftSchema(status: z.ZodType) {
-  const review = <T extends z.ZodType>(value: T) => reviewValueSchema(value, status);
+function createRecipeDraftSchema(status: z.ZodType, allowUserEditMarker: boolean) {
+  const review = <T extends z.ZodType>(value: T) =>
+    reviewValueSchema(value, status, allowUserEditMarker);
   const ingredient = z.strictObject({
     id: identifier,
     sourceText,
@@ -105,12 +125,43 @@ function createRecipeDraftSchema(status: z.ZodType) {
     sourceServings: review(nullablePositiveNumber),
     ingredients: z.array(ingredient).max(MAX_INGREDIENTS),
     steps: z.array(step).max(MAX_STEPS),
+  }).superRefine((draft, context) => {
+    // Reducers, dependency lookup, and Review UI keys require unambiguous entity identities.
+    const ingredientIds = new Set<string>();
+    draft.ingredients.forEach((entry, index) => {
+      if (ingredientIds.has(entry.id)) {
+        context.addIssue({
+          code: "custom",
+          path: ["ingredients", index, "id"],
+          message: "Ingredient ids must be unique within a recipe.",
+        });
+      }
+      ingredientIds.add(entry.id);
+    });
+    const stepIds = new Set<string>();
+    draft.steps.forEach((entry, index) => {
+      if (stepIds.has(entry.id)) {
+        context.addIssue({
+          code: "custom",
+          path: ["steps", index, "id"],
+          message: "Step ids must be unique within a recipe.",
+        });
+      }
+      stepIds.add(entry.id);
+    });
   });
 }
 
-export const aiRecipeDraftSchema = createRecipeDraftSchema(aiStatusSchema);
-export const recipeDraftSchema = createRecipeDraftSchema(statusSchema);
+export const aiRecipeDraftSchema = createRecipeDraftSchema(aiStatusSchema, false);
+export const recipeDraftSchema = createRecipeDraftSchema(statusSchema, true);
 export const aiRecipeDraftJsonSchema = z.toJSONSchema(aiRecipeDraftSchema);
+
+export function isRecipeIdentifier(value: unknown): value is string {
+  return typeof value === "string"
+    && value.length > 0
+    && value.length <= MAX_IDENTIFIER_CHARS
+    && IDENTIFIER_PATTERN.test(value);
+}
 
 function zodPath(path: PropertyKey[]) {
   if (path.length === 0) return "$";

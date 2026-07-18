@@ -38,6 +38,14 @@ describe("buildCodexImportPrompt", () => {
     expect(built.prompt).toMatch(/must not output.*kcal.*nutritionRefId.*schedule/i);
   });
 
+  it("states every identity uniqueness rule for the generated batch", () => {
+    const built = buildCodexImportPrompt(["Recipe one", "Recipe two"]);
+
+    expect(built.prompt).toMatch(/draft ids? \(recipe ids?\).*unique across the batch/i);
+    expect(built.prompt).toMatch(/ingredient ids?.*unique within each draft/i);
+    expect(built.prompt).toMatch(/step ids?.*unique across the entire batch/i);
+  });
+
   it("accepts at most three non-blank recipes within per-item and total bounds", () => {
     expect(MAX_RECIPE_COUNT).toBe(3);
     expect(() => buildCodexImportPrompt([])).toThrow(/recipe/i);

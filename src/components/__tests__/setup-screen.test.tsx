@@ -138,6 +138,18 @@ describe("SetupScreen", () => {
     expect(screen.queryByRole("button", { name: /650 kcal demo/i })).not.toBeInTheDocument();
   });
 
+  it("keeps Local AI status inside the sticky action region", () => {
+    renderSetup({
+      mode: "local",
+      values: COMPLETE_VALUES,
+      localNotice: "Local AI is disabled. Your recipe was not sent.",
+    });
+
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent(/recipe was not sent/i);
+    expect(status.closest(".form-action--local")).not.toBeNull();
+  });
+
   it("filters blank recipe slots without changing the submitted source text", () => {
     const onSubmit = vi.fn();
     const original = "\n  Chicken recipe with source spacing  \n";

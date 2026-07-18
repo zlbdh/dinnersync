@@ -1,25 +1,41 @@
 "use client";
 
-import { useReducer, useState } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 
 import {
   DEMO_REVIEW_STATES,
+  DEMO_NUTRITION_CATALOG,
   DEMO_SCENARIO,
   DEMO_SOURCE_RECIPES,
 } from "@/modules/demo";
 import {
   createDinnerPlannerState,
+  buildDinnerPlan,
   dinnerPlannerReducer,
   type DinnerPlanSettings,
 } from "@/modules/dinner-planner";
+import type { RecipeReviewAction } from "@/modules/recipe-import";
 
+import {
+  requestLocalAiImport,
+  type LocalAiImportMeta,
+} from "./local-ai-import";
+import { ReviewScreen } from "./review-screen";
 import { SetupScreen, type SetupFormValues } from "./setup-screen";
-import { Button } from "./ui/button";
-import { Panel } from "./ui/panel";
+import { setupValuesToSettings } from "./setup-settings";
+import { PlanHandoff } from "./plan-handoff";
 import { ProgressRail } from "./ui/progress-rail";
 import { StatusChip } from "./ui/status-chip";
 
 type Mode = "hosted" | "local";
+
+const PROGRESS_STEP = {
+  setup: "Setup",
+  review: "Review",
+  plan: "Plan",
+  cook: "Cook",
+  summary: "Summary",
+} as const;
 
 const INITIAL_VALUES: SetupFormValues = {
   recipeTexts: ["", "", ""],
@@ -54,11 +70,30 @@ export function DinnerSyncApp() {
   const [values, setValues] = useState(INITIAL_VALUES);
   const [consentToSend, setConsentToSend] = useState(false);
   const [localNotice, setLocalNotice] = useState<string | null>(null);
+  const [localMeta, setLocalMeta] = useState<LocalAiImportMeta | null>(null);
+  const [localBusy, setLocalBusy] = useState(false);
+  const requestGeneration = useRef(0);
+  const activeRequest = useRef<AbortController | null>(null);
+
+  useEffect(() => () => {
+    requestGeneration.current += 1;
+    activeRequest.current?.abort();
+    activeRequest.current = null;
+  }, []);
+
+  const cancelLocalRequest = () => {
+    requestGeneration.current += 1;
+    activeRequest.current?.abort();
+    activeRequest.current = null;
+    setLocalBusy(false);
+  };
 
   const changeMode = (nextMode: Mode) => {
+    cancelLocalRequest();
     setMode(nextMode);
     setConsentToSend(false);
     setLocalNotice(null);
+    setLocalMeta(null);
     setValues({ ...INITIAL_VALUES, recipeTexts: ["", "", ""] });
     dispatch({
       type: "RESET",
@@ -68,6 +103,11 @@ export function DinnerSyncApp() {
   };
 
   const loadDemo = () => {
+    cancelLocalRequest();
+    setMode("hosted");
+    setConsentToSend(false);
+    setLocalNotice(null);
+    setLocalMeta(null);
     setValues({
       ...INITIAL_VALUES,
       recipeTexts: [
@@ -85,17 +125,81 @@ export function DinnerSyncApp() {
     dispatch({ type: "STAGE_CHANGED", stage: "review" });
   };
 
-  const prepareLocalReview = (recipeTexts: string[]) => {
-    setLocalNotice(
-      `${recipeTexts.length} recipe${recipeTexts.length === 1 ? " is" : "s are"} entered, but not parsed yet. Pasted text is never presented as AI output.`,
-    );
+  const prepareLocalReview = async (recipeTexts: string[]) => {
+    if (localBusy) return;
+    const nextSettings = setupValuesToSettings(values);
+    if (!nextSettings.ok) {
+      setLocalNotice(nextSettings.message);
+      return;
+    }
+
+    const generation = requestGeneration.current + 1;
+    requestGeneration.current = generation;
+    const controller = new AbortController();
+    activeRequest.current?.abort();
+    activeRequest.current = controller;
+    setLocalBusy(true);
+    setLocalMeta(null);
+    setLocalNotice("Checking local Codex availability before any recipe text is sent.");
+    dispatch({ type: "SETTINGS_CHANGED", settings: nextSettings.value });
+
+    const result = await requestLocalAiImport({
+      recipes: [...recipeTexts],
+      diners: nextSettings.value.diners,
+      signal: controller.signal,
+    });
+    if (generation !== requestGeneration.current) return;
+
+    if (!result.ok) {
+      if (result.code !== "LOCAL_AI_ABORTED") setLocalNotice(result.message);
+    } else {
+      setLocalNotice(null);
+      setLocalMeta(result.meta);
+      dispatch({
+        type: "RESET",
+        settings: nextSettings.value,
+        reviewStates: result.reviewStates,
+      });
+      dispatch({ type: "STAGE_CHANGED", stage: "review" });
+    }
+
+    if (generation === requestGeneration.current) {
+      activeRequest.current = null;
+      setLocalBusy(false);
+    }
   };
 
-  const returnToSetup = () => dispatch({
-    type: "RESET",
-    settings: planner.settings,
-    reviewStates: planner.reviewStates,
-  });
+  const returnToSetup = () => {
+    cancelLocalRequest();
+    setLocalNotice(null);
+    setLocalMeta(null);
+    dispatch({
+      type: "RESET",
+      settings: planner.settings,
+      reviewStates: planner.reviewStates,
+    });
+  };
+
+  const reviewChanged = (recipeId: string, action: RecipeReviewAction) => {
+    dispatch({ type: "REVIEW_CHANGED", recipeId, action });
+  };
+
+  const planAttempt = planner.stage === "review"
+    ? buildDinnerPlan({
+      settings: planner.settings,
+      reviewStates: planner.reviewStates,
+      nutritionCatalog: DEMO_NUTRITION_CATALOG,
+    })
+    : null;
+
+  const buildPlan = () => {
+    if (!planAttempt) return;
+    if (planAttempt.ok) {
+      dispatch({ type: "PLAN_BUILT", plan: planAttempt.value });
+    } else {
+      dispatch({ type: "ERRORS_CHANGED", errors: planAttempt.error });
+    }
+  };
 
   return (
     <main className="app-shell" id="top">
@@ -110,7 +214,7 @@ export function DinnerSyncApp() {
         </StatusChip>
       </header>
 
-      <ProgressRail current={planner.stage === "setup" ? "Setup" : "Review"} />
+      <ProgressRail current={PROGRESS_STEP[planner.stage]} />
 
       {planner.stage === "setup" ? (
         <>
@@ -118,26 +222,36 @@ export function DinnerSyncApp() {
             mode={mode}
             values={values}
             consentToSend={consentToSend}
+            isSubmitting={localBusy}
+            localNotice={localNotice}
             onModeChange={changeMode}
             onValuesChange={setValues}
             onConsentChange={setConsentToSend}
             onLoadDemo={loadDemo}
             onSubmit={prepareLocalReview}
           />
-          {localNotice && <p className="local-notice" role="status">{localNotice}</p>}
+        </>
+      ) : planner.stage === "review" ? (
+        <>
+          {mode === "local" && localMeta && (
+            <p className="local-notice" role="status">
+              Verified import · {localMeta.provider} · {localMeta.model} · schema and source evidence checked. Every field still needs your review.
+            </p>
+          )}
+          <ReviewScreen
+            reviewStates={planner.reviewStates}
+            nutritionCatalog={DEMO_NUTRITION_CATALOG}
+            mode={mode}
+            note={values.notes}
+            planReady={planAttempt?.ok === true}
+            planErrors={planAttempt && !planAttempt.ok ? planAttempt.error : []}
+            onReviewChange={reviewChanged}
+            onBuildPlan={buildPlan}
+            onBack={returnToSetup}
+          />
         </>
       ) : (
-        <Panel className="handoff" aria-labelledby="handoff-title">
-          <p className="eyebrow">02 · Recipe review</p>
-          <h2 id="handoff-title">Demo dinner loaded.</h2>
-          <p>
-            {`${planner.reviewStates.length} pre-generated, pre-reviewed fixtures are ready. No model request was made.`}
-          </p>
-          <div className="handoff__actions">
-            <Button variant="secondary" onClick={returnToSetup}>Back to setup</Button>
-            <StatusChip tone="time">Review screen next</StatusChip>
-          </div>
-        </Panel>
+        <PlanHandoff onBack={returnToSetup} />
       )}
     </main>
   );

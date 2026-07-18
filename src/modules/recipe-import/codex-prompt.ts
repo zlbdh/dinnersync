@@ -34,6 +34,7 @@ export function buildCodexImportPrompt(recipes: readonly string[]): CodexImportP
     "Do not use tools, files, or network access.",
     "Return only strict JSON that matches the supplied output schema.",
     "Return one draft per input, in the same order, preserving each complete sourceText exactly.",
+    "Draft ids (recipe ids) must be unique across the batch; ingredient ids must be unique within each draft; step ids must be unique across the entire batch.",
     "Every review status must be needs-review. Source evidence uses UTF-16 half-open offsets.",
     "Inferred values require null evidence and a specific non-blank inferenceReason.",
     "You must not output calories, kcal, nutritionRefId, nutrition data, or schedule data.",

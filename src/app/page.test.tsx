@@ -64,11 +64,20 @@ describe("Home page", () => {
 
     await user.click(screen.getByRole("button", { name: "Try the 650 kcal demo" }));
 
-    expect(screen.getByRole("heading", { name: "Demo dinner loaded." })).toBeInTheDocument();
-    expect(screen.getByText(/3 pre-generated, pre-reviewed fixtures/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", {
+      name: /review every field before the clock starts/i,
+    })).toHaveFocus();
+    expect(screen.getByText("Built-in reviewed fixture")).toBeInTheDocument();
+    expect(screen.getByText("No model request was made")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /build the service timeline/i }))
+      .toBeEnabled();
     expect(fetchSpy).not.toHaveBeenCalled();
 
+    await user.click(screen.getByRole("button", { name: /build the service timeline/i }));
+    expect(screen.getByRole("heading", { name: /service timeline ready/i }))
+      .toHaveFocus();
     await user.click(screen.getByRole("button", { name: /back to setup/i }));
+    expect(screen.getByRole("heading", { name: /set the table/i })).toHaveFocus();
     await user.click(screen.getByRole("radio", { name: /local ai/i }));
     expect(screen.getByRole("textbox", { name: /recipe 1/i })).toHaveValue("");
     expect(screen.getByRole("spinbutton", { name: /target kcal/i })).toHaveValue(null);
@@ -80,9 +89,15 @@ describe("Home page", () => {
     })).toBe(fixtureBefore);
   });
 
-  it("keeps unparsed Local AI text in setup and clears it between modes", async () => {
+  it("keeps failed Local AI text in setup and clears it between modes", async () => {
     const user = userEvent.setup();
-    const fetchSpy = vi.fn();
+    const fetchSpy = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({
+      ok: false,
+      error: { code: "LOCAL_AI_DISABLED", message: "private detail" },
+    }), {
+      status: 404,
+      headers: { "content-type": "application/json" },
+    }));
     vi.stubGlobal("fetch", fetchSpy);
     render(<Page />);
 
@@ -92,9 +107,14 @@ describe("Home page", () => {
     await user.click(screen.getByRole("checkbox", { name: /send these recipes/i }));
     await user.click(screen.getByRole("button", { name: /build my service plan/i }));
 
-    expect(screen.getByRole("status")).toHaveTextContent(/not parsed yet/i);
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      /not enabled on this server.*recipe was not sent/i,
+    );
     expect(screen.getByRole("heading", { name: /set the table/i })).toBeInTheDocument();
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    expect(fetchSpy.mock.calls[0][0]).toBe("/api/local-ai/status");
+    expect(fetchSpy.mock.calls[0][1]?.body).toBeUndefined();
+    expect(JSON.stringify(fetchSpy.mock.calls)).not.toContain("One complete recipe");
 
     await user.click(screen.getByRole("radio", { name: /hosted demo/i }));
     await user.click(screen.getByRole("radio", { name: /local ai/i }));

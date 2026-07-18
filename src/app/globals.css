@@ -120,7 +120,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--tomato); box-sha
 .consent-field small { margin-top: 0.25rem; color: var(--muted); font-size: 0.72rem; line-height: 1.45; }
 .form-action { display: flex; align-items: center; gap: 1rem; margin-top: 1.4rem; }
 .form-action > small { max-width: 22rem; color: var(--muted); font-size: 0.68rem; line-height: 1.4; }
-.form-action--local { position: sticky; z-index: 5; top: 0.5rem; margin-top: 0.85rem; border: 1px solid var(--line); border-left: 4px solid var(--tomato); padding: 0.75rem; background: rgb(255 250 240 / 96%); box-shadow: 0 8px 24px rgb(65 48 25 / 12%); }
+.form-action--local { position: sticky; z-index: 5; top: 0.5rem; display: grid; grid-template-columns: max-content minmax(0, 1fr); margin-top: 0.85rem; border: 1px solid var(--line); border-left: 4px solid var(--tomato); padding: 0.75rem; background: rgb(255 250 240 / 96%); box-shadow: 0 8px 24px rgb(65 48 25 / 12%); }
+.form-action--local > .local-notice { grid-column: 1 / -1; max-width: none; margin: 0; }
 
 .button { min-height: 2.85rem; border: 1px solid transparent; border-radius: 999px; padding: 0.7rem 1.15rem; font-size: 0.77rem; font-weight: 800; transition: background var(--motion-fast), color var(--motion-fast), transform var(--motion-fast), box-shadow var(--motion-fast); }
 .button:not(:disabled):hover { transform: translateY(-2px); box-shadow: 0 8px 18px rgb(65 48 25 / 16%); }
@@ -176,6 +177,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--tomato); box-sha
   .setup-form { padding: 1.1rem; }
   .mode-picker, .field-grid { grid-template-columns: 1fr; }
   .demo-callout, .form-action { align-items: stretch; flex-direction: column; }
+  .form-action--local { grid-template-columns: minmax(0, 1fr); }
   .demo-callout .button, .form-action .button { width: 100%; }
   .service-track { grid-template-columns: 4.7rem 1fr 3.2rem; }
 }

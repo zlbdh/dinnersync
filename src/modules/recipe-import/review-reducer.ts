@@ -152,11 +152,13 @@ export function recipeReviewReducer(
     review.evidence = null;
     review.confidence = 1;
     review.inferenceReason = action.reason?.trim() || USER_EDIT_REASON;
+    review.editedByUser = true;
     if (editInvalidatesDerivations(action.target)) invalidateDerivedState(next);
     return next;
   }
 
   if (action.type === "set-target-servings") {
+    if (!Number.isSafeInteger(action.value) || action.value <= 0) return state;
     if (Object.is(state.targetServings, action.value)) return state;
     const next = structuredClone(state);
     next.targetServings = action.value;

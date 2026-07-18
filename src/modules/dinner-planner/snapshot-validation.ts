@@ -113,5 +113,17 @@ function validReviewState(value: unknown): value is RecipeReviewState {
 export function validRecipeReviewStates(
   value: unknown,
 ): value is RecipeReviewState[] {
-  return Array.isArray(value) && value.every(validReviewState);
+  if (!Array.isArray(value)) return false;
+  // Hydrated states must preserve identities used by review keys and flattened scheduling.
+  const recipeIds = new Set<string>();
+  const stepIds = new Set<string>();
+  for (const entry of value) {
+    if (!validReviewState(entry) || recipeIds.has(entry.draft.id)) return false;
+    for (const step of entry.draft.steps) {
+      if (stepIds.has(step.id)) return false;
+      stepIds.add(step.id);
+    }
+    recipeIds.add(entry.draft.id);
+  }
+  return true;
 }

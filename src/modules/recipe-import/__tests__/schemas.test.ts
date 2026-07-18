@@ -94,11 +94,51 @@ describe("RecipeDraft AI schema", () => {
     expect(api.aiRecipeDraftSchema.safeParse(draft).success).toBe(false);
   });
 
+  test.each([
+    ["ingredient", (draft: ReturnType<typeof makeAiDraft>) => {
+      draft.ingredients[1].id = draft.ingredients[0].id;
+    }, "ingredients[1].id"],
+    ["step", (draft: ReturnType<typeof makeAiDraft>) => {
+      draft.steps[1].id = draft.steps[0].id;
+    }, "steps[1].id"],
+  ])("rejects duplicate %s ids in one draft", (_label, duplicate, path) => {
+    const draft = makeAiDraft();
+    duplicate(draft);
+
+    const parsed = recipeImport.parseAiRecipeDraft(draft, draft.sourceText);
+
+    expect(api.aiRecipeDraftSchema.safeParse(draft).success).toBe(false);
+    expect(api.recipeDraftSchema.safeParse(draft).success).toBe(false);
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) {
+      expect(parsed.error).toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: "SCHEMA_INVALID", path }),
+      ]));
+    }
+  });
+
   test("allows confirmed values only in the local review schema", () => {
     const draft = makeAiDraft();
     draft.name.status = "confirmed";
     expect(api.recipeDraftSchema.safeParse(draft).success).toBe(true);
     expect(api.aiRecipeDraftSchema.safeParse(draft).success).toBe(false);
+  });
+
+  test("allows the internal user-edit marker only in the local review schema", () => {
+    const reviewed = makeAiDraft();
+    Object.assign(reviewed.name, {
+      provenance: "inferred",
+      evidence: null,
+      inferenceReason: "User edited this field during review.",
+      confidence: 1,
+      status: "confirmed",
+      editedByUser: true,
+    });
+    const forgedModelDraft = makeAiDraft();
+    Object.assign(forgedModelDraft.name, { editedByUser: true });
+
+    expect(api.recipeDraftSchema.safeParse(reviewed).success).toBe(true);
+    expect(api.aiRecipeDraftSchema.safeParse(forgedModelDraft).success).toBe(false);
   });
 
   test("enforces source and inferred metadata invariants", () => {

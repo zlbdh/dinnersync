@@ -1,4 +1,4 @@
-import type { FormEvent } from "react";
+import { useEffect, useRef, type FormEvent } from "react";
 
 import { Button } from "./ui/button";
 import { Panel } from "./ui/panel";
@@ -18,6 +18,8 @@ export type SetupScreenProps = {
   mode: "hosted" | "local";
   values: SetupFormValues;
   consentToSend: boolean;
+  isSubmitting?: boolean;
+  localNotice?: string | null;
   onModeChange(mode: "hosted" | "local"): void;
   onValuesChange(values: SetupFormValues): void;
   onConsentChange(consent: boolean): void;
@@ -72,12 +74,18 @@ export function SetupScreen({
   mode,
   values,
   consentToSend,
+  isSubmitting = false,
+  localNotice = null,
   onModeChange,
   onValuesChange,
   onConsentChange,
   onLoadDemo,
   onSubmit,
 }: SetupScreenProps) {
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    titleRef.current?.focus();
+  }, []);
   const update = <Key extends keyof SetupFormValues>(
     key: Key,
     value: SetupFormValues[Key],
@@ -108,7 +116,8 @@ export function SetupScreen({
     && dinersValid
     && timesValid
     && targetKcalValid;
-  const canSubmit = mode === "local" && consentToSend && formComplete;
+  const canSubmit = mode === "local" && consentToSend && formComplete
+    && !isSubmitting;
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -117,10 +126,10 @@ export function SetupScreen({
 
   return (
     <div className="setup-layout">
-      <form className="setup-form" onSubmit={submit}>
+      <form className="setup-form" onSubmit={submit} aria-busy={isSubmitting}>
         <header className="setup-heading">
           <p className="eyebrow">01 · Mise en place</p>
-          <h2>Set the table for a synced dinner.</h2>
+          <h2 ref={titleRef} tabIndex={-1}>Set the table for a synced dinner.</h2>
           <p>Bring up to three recipes. We will line up the work so every dish lands together.</p>
         </header>
 
@@ -157,12 +166,17 @@ export function SetupScreen({
 
         {mode === "local" && (
           <div className="form-action form-action--local">
-            <Button type="submit" disabled={!canSubmit}>Build my service plan</Button>
-            <small>{!consentToSend ? "Consent is required before parsing can begin." : !formComplete ? "Add at least one recipe and check the service settings." : "Ready for structured recipe review."}</small>
+            <Button type="submit" disabled={!canSubmit}>
+              {isSubmitting ? "Checking Local AI…" : "Build my service plan"}
+            </Button>
+            <small>{isSubmitting ? "Checking local availability before recipe text is sent." : !consentToSend ? "Consent is required before parsing can begin." : !formComplete ? "Add at least one recipe and check the service settings." : "Ready for structured recipe review."}</small>
+            {localNotice && (
+              <p className="local-notice" role="status">{localNotice}</p>
+            )}
           </div>
         )}
 
-        <fieldset className="recipe-fieldset" disabled={mode === "hosted"}>
+        <fieldset className="recipe-fieldset" disabled={mode === "hosted" || isSubmitting}>
           <legend>Up to three recipes</legend>
           <p id="recipe-help">Paste the complete source text, including ingredients and steps.</p>
           {RECIPE_NAMES.map((name, index) => (
@@ -179,7 +193,7 @@ export function SetupScreen({
           ))}
         </fieldset>
 
-        <fieldset className="settings-fieldset">
+        <fieldset className="settings-fieldset" disabled={isSubmitting}>
           <legend>Service settings</legend>
           <div className="field-grid">
             <label>
@@ -217,7 +231,7 @@ export function SetupScreen({
 
         {mode === "local" && (
           <label className="consent-field">
-            <input type="checkbox" checked={consentToSend} onChange={(event) => onConsentChange(event.target.checked)} />
+            <input type="checkbox" checked={consentToSend} disabled={isSubmitting} onChange={(event) => onConsentChange(event.target.checked)} />
             <span><strong>I agree to send these recipes to OpenAI.</strong><small>Codex runs locally, but the recipe text is processed by OpenAI.</small></span>
           </label>
         )}

@@ -82,6 +82,7 @@ describe("recipe review reducer", () => {
       inferenceReason: "I weighed the pasta before cooking",
       confidence: 1,
       status: "confirmed",
+      editedByUser: true,
     });
     expect(state.draft.ingredients[0].quantity.value).toBe(200);
   });
@@ -226,4 +227,15 @@ describe("recipe review reducer", () => {
     expect(hasOnlyStepStatus(next, "needs-review")).toBe(true);
     expect(state).toEqual(snapshot);
   });
+
+  test.each([0, -1, 2.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1])(
+    "refuses invalid target servings %s",
+    (value) => {
+      const state = api.createRecipeReviewState(makeAiDraft(), 2);
+      expect(api.recipeReviewReducer(state, {
+        type: "set-target-servings",
+        value,
+      })).toBe(state);
+    },
+  );
 });

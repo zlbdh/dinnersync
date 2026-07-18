@@ -13,6 +13,7 @@ export type ReviewValue<T> = {
   inferenceReason: string | null;
   confidence: number;
   status: "needs-review" | "confirmed";
+  editedByUser?: true;
 };
 
 export type FoodState = "raw" | "cooked" | "other";
