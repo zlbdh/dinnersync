@@ -63,9 +63,11 @@ $env:DINNERSYNC_CODEX_MODEL='gpt-5.6-sol'; npm run smoke:codex        -> PASS: g
   轻量轮询做 best-effort 大小监测，一旦观察到超限便进入同一进程树终止流程；这不是
   OS 硬配额，不能保证在两次轮询之间阻止瞬时增长。进程退出后，runner 会在同一文件
   handle 上执行初始 `stat`、有界循环读取到 EOF 和最终 `stat`，严格拒绝超限或大小变化。
-- 超时、取消或超限时先请求终止；若进程不退出则在 POSIX 强杀独立进程组，在 Windows
-  通过 `taskkill.exe /PID <pid> /T /F` 强杀目标进程树，并等待退出确认。若最终仍无法确认，
-  错误会明确标记 `terminationConfirmed: false`，不会宣称已安全退出。
+- 超时、取消或超限时会向直接 child 请求 `SIGTERM`，并立即启动树级强制终止：POSIX
+  对独立进程组发送 `SIGKILL`，Windows 通过 `taskkill.exe /PID <pid> /T /F` 处理目标
+  进程树。这里为封闭直接 child 提前退出、孙进程仍存活的竞态，安全优先，不提供额外
+  宽限期。只有直接 child 已 close 且树级动作成功，才会标记 `terminationConfirmed: true`；
+  树动作失败、超时或无法确认时保留首个错误码，并明确标记 `terminationConfirmed: false`。
 - 错误不回传 prompt、原始 stderr、认证信息或本地路径；清理失败只附加脱敏诊断。
 - CLI 在本机报告 models cache 字段兼容性告警和 PowerShell shell snapshot 告警，但两次
   精确模型调用仍以退出码 0 返回合规结构化结果。若后续升级 CLI，必须重新执行本门禁。

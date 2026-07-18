@@ -32,7 +32,6 @@ export type CodexProcessDependencies = {
   platform: NodeJS.Platform;
   forceKillTree: ForceKillTree;
   statResult: (path: string) => Promise<{ size: number }>;
-  terminationGraceMs: number;
   forceConfirmationMs: number;
   resultMonitorIntervalMs: number;
 };
@@ -70,15 +69,15 @@ async function waitForProcess<T>(
 ) {
   await new Promise<void>((resolve, reject) => {
     let settled = false;
-    let forceStarted = false;
+    let childClosed = false;
     let terminationReason: CodexRunnerError | undefined;
+    let treeState: "idle" | "pending" | "succeeded" | "failed" = "idle";
     let monitorTimer: ReturnType<typeof setTimeout> | undefined;
-    let graceTimer: ReturnType<typeof setTimeout> | undefined;
-    let forceTimer: ReturnType<typeof setTimeout> | undefined;
+    let terminationTimer: ReturnType<typeof setTimeout> | undefined;
     let finalTimer: ReturnType<typeof setTimeout> | undefined;
 
     const clearTimers = () => {
-      for (const timer of [timeoutTimer, monitorTimer, graceTimer, forceTimer, finalTimer]) {
+      for (const timer of [timeoutTimer, monitorTimer, terminationTimer, finalTimer]) {
         if (timer) clearTimeout(timer);
       }
     };
@@ -97,6 +96,9 @@ async function waitForProcess<T>(
     };
     const finishUnconfirmed = () => {
       if (!terminationReason || settled) return;
+      if (treeState !== "succeeded") {
+        terminationReason.addDiagnostic("FORCE_TERMINATION_FAILED");
+      }
       terminationReason.addDiagnostic("FORCE_TERMINATION_UNCONFIRMED").markTermination(false);
       child.stdin.destroy();
       child.stdout.destroy();
@@ -104,8 +106,11 @@ async function waitForProcess<T>(
       child.unref?.();
       finish(terminationReason);
     };
-    const directForce = () => {
+    const forceDirectChild = () => {
       if (!terminationReason || settled) return;
+      if (treeState !== "succeeded") {
+        terminationReason.addDiagnostic("FORCE_TERMINATION_FAILED");
+      }
       try {
         if (!child.kill("SIGKILL")) {
           terminationReason.addDiagnostic("FORCE_TERMINATION_FAILED");
@@ -113,30 +118,48 @@ async function waitForProcess<T>(
       } catch {
         terminationReason.addDiagnostic("FORCE_TERMINATION_FAILED");
       }
-      finalTimer = setTimeout(finishUnconfirmed, dependencies.forceConfirmationMs);
+      if (!settled) {
+        finalTimer = setTimeout(finishUnconfirmed, dependencies.forceConfirmationMs);
+      }
     };
-    const forceTree = () => {
-      if (!terminationReason || forceStarted || settled) return;
-      forceStarted = true;
-      if (graceTimer) clearTimeout(graceTimer);
-      forceTimer = setTimeout(directForce, dependencies.forceConfirmationMs);
+    const maybeFinishTermination = () => {
+      if (!terminationReason || settled || treeState === "idle" || treeState === "pending") return;
+      if (treeState === "succeeded" && childClosed) {
+        terminationReason.markTermination(true);
+        finish(terminationReason);
+      } else if (treeState === "failed" && childClosed) {
+        terminationReason.addDiagnostic("FORCE_TERMINATION_UNCONFIRMED").markTermination(false);
+        finish(terminationReason);
+      }
+    };
+    const failTreeTermination = () => {
+      if (settled) return;
+      treeState = "failed";
+      terminationReason?.addDiagnostic("FORCE_TERMINATION_FAILED");
+      maybeFinishTermination();
+    };
+    const startTreeTermination = () => {
+      if (!terminationReason || settled || treeState !== "idle") return undefined;
+      treeState = "pending";
       const pid = child.pid;
       if (!Number.isSafeInteger(pid) || pid! <= 0) {
-        terminationReason.addDiagnostic("FORCE_TERMINATION_FAILED");
-        return;
+        failTreeTermination();
+        return undefined;
       }
       try {
-        void dependencies.forceKillTree(pid!).catch(() => {
-          if (!settled) terminationReason?.addDiagnostic("FORCE_TERMINATION_FAILED");
-        });
+        return dependencies.forceKillTree(pid!);
       } catch {
-        terminationReason.addDiagnostic("FORCE_TERMINATION_FAILED");
+        failTreeTermination();
+        return undefined;
       }
     };
     const terminate = (reason: CodexRunnerError) => {
       if (terminationReason || settled) return;
       terminationReason = reason;
       if (monitorTimer) clearTimeout(monitorTimer);
+      terminationTimer = setTimeout(forceDirectChild, dependencies.forceConfirmationMs);
+      const treeAction = startTreeTermination();
+      if (settled) return;
       let accepted = false;
       try {
         accepted = child.kill("SIGTERM");
@@ -145,10 +168,12 @@ async function waitForProcess<T>(
       }
       if (!accepted) {
         reason.addDiagnostic("GRACEFUL_TERMINATION_FAILED");
-        forceTree();
-      } else if (!settled) {
-        graceTimer = setTimeout(forceTree, dependencies.terminationGraceMs);
       }
+      void treeAction?.then(() => {
+        if (settled) return;
+        treeState = "succeeded";
+        maybeFinishTermination();
+      }, failTreeTermination);
     };
     const onAbort = () => terminate(abortedError());
     const onError = () => {
@@ -158,8 +183,8 @@ async function waitForProcess<T>(
     };
     const onClose = (exitCode: number | null) => {
       if (terminationReason) {
-        terminationReason.markTermination(true);
-        finish(terminationReason);
+        childClosed = true;
+        maybeFinishTermination();
       } else if (exitCode !== 0) {
         finish(new CodexRunnerError(
           "CODEX_EXIT_FAILED",

@@ -56,7 +56,6 @@ function setupProcess(options: Partial<ProcessDouble> = {}, dependencyOverrides 
     spawn,
     executable: "codex-test",
     forceKillTree,
-    terminationGraceMs: 5,
     forceConfirmationMs: 20,
     resultMonitorIntervalMs: 2,
     ...dependencyOverrides,
@@ -65,6 +64,39 @@ function setupProcess(options: Partial<ProcessDouble> = {}, dependencyOverrides 
 }
 
 describe("Codex process termination", () => {
+  it("does not confirm a fast direct-child close when tree termination fails", async () => {
+    const forceKillTree = vi.fn().mockRejectedValue(new Error("tree action failed"));
+    const { runner } = setupProcess({ closeOnKill: true }, { forceKillTree });
+
+    const error = await runner.run(request()).catch((value) => value);
+
+    expect(forceKillTree).toHaveBeenCalledWith(4_242);
+    expect(error).toMatchObject({
+      code: "CODEX_TIMEOUT",
+      diagnostics: ["FORCE_TERMINATION_FAILED", "FORCE_TERMINATION_UNCONFIRMED"],
+      terminationConfirmed: false,
+    });
+  });
+
+  it("waits for tree confirmation after the direct child has closed", async () => {
+    let confirmTree!: () => void;
+    const forceKillTree = vi.fn(() => new Promise<void>((resolve) => { confirmTree = resolve; }));
+    const { runner } = setupProcess({ closeOnKill: true }, { forceKillTree });
+    let settled = false;
+    const observed = runner.run(request()).catch((value) => value);
+    void observed.then(() => { settled = true; });
+
+    await vi.waitFor(() => expect(forceKillTree).toHaveBeenCalledWith(4_242));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settled).toBe(false);
+    confirmTree();
+
+    await expect(observed).resolves.toMatchObject({
+      code: "CODEX_TIMEOUT",
+      terminationConfirmed: true,
+    });
+  });
+
   it("force-kills the process tree after SIGTERM is ignored", async () => {
     const { child, forceKillTree, runner } = setupProcess();
 
@@ -81,9 +113,7 @@ describe("Codex process termination", () => {
   });
 
   it("escalates immediately when graceful kill returns false", async () => {
-    const { forceKillTree, runner } = setupProcess({ killResult: false }, {
-      terminationGraceMs: 60_000,
-    });
+    const { forceKillTree, runner } = setupProcess({ killResult: false });
 
     const error = await runner.run(request()).catch((value) => value);
 

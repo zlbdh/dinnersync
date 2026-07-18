@@ -35,7 +35,6 @@ type RunnerDependencies = {
   statResult?: (path: string) => Promise<{ size: number }>;
   openFile?: ResultReaderDependencies["openFile"];
   removeDirectory?: RemoveDirectory;
-  terminationGraceMs?: number;
   forceConfirmationMs?: number;
   resultMonitorIntervalMs?: number;
 };
@@ -54,8 +53,7 @@ export function createCodexRunner(dependencies: RunnerDependencies = {}) {
     platform,
     forceKillTree: dependencies.forceKillTree ?? createForceKillTree({ platform }),
     statResult: dependencies.statResult ?? defaultResultStat,
-    terminationGraceMs: dependencies.terminationGraceMs ?? 250,
-    forceConfirmationMs: dependencies.forceConfirmationMs ?? 1_000,
+    forceConfirmationMs: dependencies.forceConfirmationMs ?? 2_500,
     resultMonitorIntervalMs: dependencies.resultMonitorIntervalMs ?? 100,
   };
 
