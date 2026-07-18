@@ -19,6 +19,7 @@ export type ScheduledTask = {
 };
 
 export type ScheduleIssueCode =
+  | "INVALID_TIME"
   | "INVALID_TASK"
   | "INVALID_DURATION"
   | "MISSING_DEPENDENCY"

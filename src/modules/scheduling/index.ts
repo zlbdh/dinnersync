@@ -3,6 +3,10 @@ export {
   topologicallySortTasks,
   validateTaskGraph,
 } from "./validate";
+export { canReserve, reserve } from "./intervals";
+export type { ResourceReservation } from "./intervals";
+export { scheduleForwardEarliest } from "./forward-schedule";
+export { scheduleDinner } from "./schedule";
 export type {
   InfeasibleSchedule,
   ReplanRequest,
