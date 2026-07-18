@@ -1,7 +1,7 @@
 # DinnerSync 产品与技术设计
 
 日期：2026-07-18
-状态：Revision 1 完成，待复审
+状态：Revision 2 完成，待复审
 比赛：OpenAI Build Week 2026
 赛道：Apps for Your Life
 
@@ -51,7 +51,7 @@ DinnerSync 是一款本地优先的智能晚餐编排应用。单道菜菜谱通
 4. 为一名厨师、一个烤箱和两个灶台生成满足五分钟同步窗口的无冲突时间线；
 5. 在模拟延误后重新安排未开始任务；
 6. 用加速演示模式在三分钟视频内展示完整过程；
-7. 无 Codex 登录时仍可通过内置样例和回放模式体验核心产品。
+7. Local AI 必须完成一次真实 GPT-5.6 解析；无 Codex 登录时仍可通过内置样例和回放模式体验确定性核心。
 
 ## 3. 非目标
 
@@ -77,7 +77,7 @@ GPT-5.6 负责理解自然语言菜谱、拆解步骤和提出候选字段。营
 
 ### 4.2 来源优先
 
-每个模型提取的步骤必须带 `EvidenceSpan` 和来源类型。原文证据的起止偏移与文本必须和输入完全匹配；没有原文依据的推断标记为 `inferred` 并强制用户确认。缺失的数量、时长、温度和设备显示为待确认，不允许模型静默补齐。
+每个模型提取字段必须带来源类型。`source` 字段必须提供 `EvidenceSpan`；偏移采用 JavaScript UTF-16 code unit，区间为左闭右开 `[start, end)`，且切片文本必须和输入完全匹配。`inferred` 字段的 `evidence` 必须为 `null`，同时提供非空 `inferenceReason` 并强制用户确认。缺失的数量、时长、温度和设备显示为待确认，不允许模型静默补齐。
 
 ### 4.3 厨房中一眼可读
 
@@ -154,6 +154,10 @@ plannedGrams = sourceGrams * targetServings / sourceServings
 
 `sourceGrams` 表示原菜谱重量，`plannedGrams` 表示当前晚餐实际计划重量。份量变化只缩放食材重量，不自动缩放步骤时长；所有受影响时长仍需用户确认。
 
+修改 `targetServings` 后，系统必须立即使所有 `plannedGrams`、营养汇总和既有排程失效，并把相关步骤时长重置为 `needs-review`。只有重新计算重量、重新确认时长并通过字段门禁后，才能再次生成热量与时间线。
+
+`omitted` 只表示用户明确决定晚餐中不使用该食材，该食材不进入计划重量和营养计算；所有引用它的步骤必须重新核对。仍会使用但无法匹配营养记录的食材不得标为 `omitted`，必须保持已使用且未解析状态。
+
 若任何实际使用的食材缺少可靠克数或营养记录，界面只能显示“已知热量小计”和未解析清单，必须禁用“达到热量目标”的结论。P0 不提供食材替换。
 
 ### 5.5 时间线预览
@@ -174,16 +178,30 @@ plannedGrams = sourceGrams * targetServings / sourceServings
 
 烹饪界面显示：
 
-- 当前步骤；
+- 当前需要执行的主动步骤；
+- 所有正在运行或已到时的被动任务和计时器；
 - 食材和用量；
 - 原菜谱做法及简化解释；
 - 剩余时间；
 - 观察提示；
 - 下一步骤；
 - 当前占用的设备；
-- 延迟和完成操作。
+- 开始、延迟和完成操作。
 
 计时使用绝对时间戳。浏览器进入后台或刷新后，任务状态仍能恢复。
+
+任务状态固定为：
+
+```text
+scheduled -> ready -> running -> due -> completed
+```
+
+- 前置任务完成且计划开始时间已到后进入 `ready`；
+- 只有用户点击 Start 才进入 `running` 并记录 `actualStart`；
+- 预计结束时间到达只进入 `due`，不得自动完成，资源继续锁定；
+- 用户点击 Complete 后进入 `completed` 并记录 `actualEnd`；
+- 实际开始或完成偏离计划时，使用与延迟事件相同的重排逻辑更新剩余任务；
+- 刷新后根据持久化事件和时间戳恢复 `ready`、`running` 或 `due`，绝不把过期任务自动标为完成。
 
 ### 5.7 延迟与重排
 
@@ -207,13 +225,13 @@ P0 不支持跳过任务，避免破坏必要依赖或制造虚假完成状态�
 - 发生的延误和重排次数；
 - 每道菜及每人的预估热量；
 - 未确认或排除的营养数据；
-- 根据关键路径、实际延误和已观察空闲时间确定性生成的下次准备建议。
+- 下次准备建议仅列出关键路径上 `actualStart` 晚于计划开始时间的任务，不生成其他模型建议。
 
 ## 6. 功能范围
 
 ### 6.1 P0：比赛必须完成
 
-- Hosted Demo 与 Local AI 两种运行模式及明确的数据发送确认；
+- Hosted Demo 与 Local AI 两种运行模式及明确的数据发送确认；两种模式均为 P0，Hosted Demo 不能替代真实 Local AI 验收；
 - 三份文字菜谱的 GPT-5.6 结构化解析；
 - 严格 schema、证据偏移校验与整单人工确认；
 - 内置可追溯的演示营养记录；
@@ -347,7 +365,7 @@ meal_kcal_per_person = sum(recipe_kcal) / diners
 
 P0 仅支持克、千克、毫升、升以及演示数据集中明确配置的量杯/量匙换算。`个`、`少许`、品牌包装等无法可靠换算时，用户必须填写克数，否则该食材保持未解析。
 
-未知食材或不可靠换算不得计入完整总量。只要一个实际使用食材未解析，界面就只显示已知热量小计、已解析食材数量和未解析清单，不显示可能误导的“热量覆盖率”百分比，也不得声称已达到目标。
+`sourceServings` 必须存在且大于零，否则禁止份量换算和完整热量计算。未知食材或不可靠换算不得计入完整总量。只要一个实际使用食材未解析，界面就只显示已知热量小计、已解析食材数量和未解析清单，不显示可能误导的“热量覆盖率”百分比，也不得声称已达到目标。
 
 比赛演示使用经过人工核验的小型本地数据集。正式接入外部营养数据前必须确认许可、字段和版本策略。
 
@@ -393,7 +411,19 @@ P0 仅支持克、千克、毫升、升以及演示数据集中明确配置的�
 - 造成变化的关键冲突；
 - 是否仍在用户允许的完成窗口内。
 
-### 7.7 本地持久化
+### 7.7 实时会话状态机
+
+会话通过事件驱动：
+
+- `TASK_STARTED`：仅允许 `ready` 任务触发，记录 `actualStart`；
+- `TASK_DELAYED`：仅允许选择 `running` 或 `due` 任务，延长其预计结束时间和资源锁；
+- `TASK_DUE`：由时钟把到时的 `running` 任务转为 `due`，不释放资源；
+- `TASK_COMPLETED`：由用户触发，记录 `actualEnd`、释放资源并重排剩余任务；
+- `SESSION_RESTORED`：从事件与时间戳重建状态，不自动补写完成事件。
+
+任务到时不等于完成。总结页的实际数据只来自 `actualStart`、`actualEnd` 和显式事件。Hosted Demo 的加速回放只自动注入同样的 Start、Due、Delay 和 Complete 事件，不使用第二套状态逻辑。
+
+### 7.8 本地持久化
 
 比赛版不需要账号或数据库服务器。计划、用户确认和烹饪会话保存在浏览器本地，且支持一键清除。浏览器持久化不可用或写入失败时降级为内存模式并显示持续警告，不阻塞当前演示。
 
@@ -413,6 +443,8 @@ type EvidenceSpan = {
 type Provenance = "source" | "inferred";
 ```
 
+`EvidenceSpan` 使用 JavaScript UTF-16 code unit 偏移和左闭右开区间 `[start, end)`。当 `provenance === "source"` 时 `evidence` 必须非空且可由 `sourceText.slice(start, end)` 精确复算；当 `provenance === "inferred"` 时 `evidence` 必须为 `null`，`inferenceReason` 必须非空。
+
 ### 8.2 Recipe
 
 ```ts
@@ -420,7 +452,7 @@ type Recipe = {
   id: string;
   name: string;
   sourceText: string;
-  sourceServings: number;
+  sourceServings: number | null;
   targetServings: number;
   ingredients: Ingredient[];
   steps: CookingStep[];
@@ -443,7 +475,8 @@ type Ingredient = {
   confidence: number;
   evidence: EvidenceSpan | null;
   provenance: Provenance;
-  status: "confirmed" | "needs-review" | "excluded";
+  inferenceReason: string | null;
+  status: "confirmed" | "needs-review" | "omitted";
 };
 ```
 
@@ -463,6 +496,7 @@ type CookingStep = {
   confidence: number;
   evidence: EvidenceSpan | null;
   provenance: Provenance;
+  inferenceReason: string | null;
   status: "confirmed" | "needs-review";
 };
 ```
@@ -485,6 +519,19 @@ type MealPlan = {
 };
 ```
 
+### 8.6 TaskRuntimeState
+
+```ts
+type TaskRuntimeState = {
+  taskId: string;
+  status: "scheduled" | "ready" | "running" | "due" | "completed";
+  plannedStart: string;
+  plannedEnd: string;
+  actualStart: string | null;
+  actualEnd: string | null;
+};
+```
+
 具体类型会在实施计划中拆分到各领域模块，以上仅表示跨模块契约。
 
 ## 9. 错误处理
@@ -496,8 +543,11 @@ type MealPlan = {
 | 步骤时长缺失 | 否 | 视营养字段而定 | 用户补充并确认 |
 | 依赖或资源缺失 | 否 | 视营养字段而定 | 用户补充并确认 |
 | terminal task 缺失或重复 | 否 | 视营养字段而定 | 修正菜谱任务图 |
-| 步骤证据缺失且为 AI 推断 | 否 | 视营养字段而定 | 明示推断并由用户确认 |
+| `source` 字段证据缺失或不匹配 | 否 | 否 | 整批拒绝 AI 输出 |
+| `inferred` 字段尚未确认 | 否 | 视营养字段而定 | 展示推断理由并由用户确认 |
 | 食材克数或营养记录缺失 | 是 | 否 | 显示已知热量小计和缺失清单 |
+| `sourceServings` 缺失或不大于零 | 是 | 否 | 禁止份量换算，要求用户补充并确认 |
+| `targetServings` 已改变但派生数据未重新确认 | 否 | 否 | 失效重量、营养和排程并重新核对 |
 | AI 输出 schema 或证据校验失败 | 否 | 否 | 整批拒绝并保留原始输入 |
 | 本地持久化失败 | 是 | 是 | 降级到内存模式并持续警告 |
 
@@ -520,7 +570,7 @@ type MealPlan = {
 - 浏览器刷新、后台计时或本地数据损坏；
 - Local AI 模式的数据发送确认被拒绝。
 
-错误信息必须说明影响和恢复动作，例如“2 项食材尚未匹配，因此当前热量只覆盖 84% 的已知重量”。
+错误信息必须说明影响和恢复动作，例如：“2 项食材未匹配；当前仅显示已知热量小计，无法判断是否达到目标。”
 
 ## 10. 安全、隐私与健康边界
 
@@ -570,9 +620,12 @@ type MealPlan = {
 会话模块：
 
 - 时间戳恢复；
-- 完成和延迟状态转换；
+- `scheduled -> ready -> running -> due -> completed` 状态转换；
+- 到时不自动完成且继续占用资源；
+- Start、Delay 和 Complete 的事件合法性；
+- 实际开始/结束偏差触发统一重排；
 - 页面刷新后的状态恢复；
-- 加速时钟与真实时钟行为一致。
+- 加速回放与真实时钟使用同一事件和状态机。
 
 ### 11.2 契约测试
 
@@ -583,9 +636,10 @@ type MealPlan = {
 
 ### 11.3 端到端测试
 
+- Local AI：确认数据发送、调用真实 GPT-5.6、校验 schema 并完成整单确认；
+- Hosted Demo：无登录加载内置晚餐并完成完整回放；
 - 载入演示晚餐；
 - 设置人数、时间和热量目标；
-- 验证 Local AI 数据发送确认或使用 Hosted Demo；
 - 核对菜谱；
 - 生成时间线；
 - 开始加速烹饪；
@@ -612,7 +666,7 @@ type MealPlan = {
 3. Import：菜谱输入与 AI 解析进度；
 4. Review：字段、来源和置信度核对；
 5. Plan：热量预算、冲突和资源泳道；
-6. Cook：当前步骤、下一步骤、计时与延迟；
+6. Cook：当前主动步骤、所有运行/到时计时器、下一步骤和延迟；
 7. Summary：实际结果与改进建议。
 
 ### 12.2 视觉重点
@@ -651,7 +705,7 @@ type MealPlan = {
 #### Day 1：技术生死线与领域核心
 
 - 实测本机 GPT-5.6 模型标识、登录方式、结构化输出、只读沙箱和超时行为；
-- 若 Local AI 无法稳定运行，立即冻结自由文本导入，保留 Hosted Demo 与预生成解析结果；
+- 若首选 Codex CLI 方式无法稳定运行，在限定时间内改用已核验的 Codex SDK 适配；若当天仍不能完成真实 GPT-5.6 解析，则项目未达到 P0，必须暂停并重新裁决方案，不能以 Hosted Demo 宣称完成；
 - 锁定严格 schema、三份演示菜谱和小型营养数据；
 - 以测试驱动完成营养计算、任务图校验和初始排程核心。
 
@@ -684,7 +738,7 @@ type MealPlan = {
 以下条件全部满足才算比赛版完成：
 
 - 内置三道菜能够稳定生成无重叠计划；
-- Local AI 首日完成 go/no-go 实测，失败时 Hosted Demo 回退仍完整；
+- Local AI 必须完成真实 GPT-5.6 解析、严格 schema 校验和整单确认；Hosted Demo 仅作为无登录评委的体验路径；
 - 所有 AI 提取结果必须整单确认，证据偏移可验证；
 - 营养计算结果有来源、可复算；有缺失时只显示已知小计；
 - 未确认字段不能静默通过；
