@@ -5,6 +5,7 @@ export {
   resolveCodexExecutable,
 } from "./codex-runner";
 export type {
+  CodexDiagnosticCode,
   CodexRunRequest,
   CodexRunnerErrorCode,
   JsonSchema,

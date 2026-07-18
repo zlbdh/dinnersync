@@ -1,9 +1,8 @@
 // @vitest-environment node
 
 import { EventEmitter } from "node:events";
-import { access, readFile, writeFile } from "node:fs/promises";
+import { access, readFile, rm, writeFile } from "node:fs/promises";
 import { PassThrough, Writable } from "node:stream";
-
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -133,6 +132,68 @@ describe("CodexRunner", () => {
     expect(fake.spawn).not.toHaveBeenCalled();
   });
 
+  it("does not mutate a frozen caller request while applying defaults", async () => {
+    const fake = fakeSpawn(async (child, call) => {
+      await writeFile(outputPath(call.args), '{"ok":true}', "utf8");
+      child.finish(0);
+    });
+    const runner = createCodexRunner({ spawn: fake.spawn as never });
+
+    await expect(runner.run(Object.freeze(validRequest()))).resolves.toEqual({ ok: true });
+  });
+
+  it("preserves a primary error when isolated-directory cleanup also fails", async () => {
+    const fake = fakeSpawn((child) => child.finish(7));
+    const runner = createCodexRunner({
+      spawn: fake.spawn,
+      removeDirectory: vi.fn(async (path, options) => {
+        await rm(path, options);
+        throw new Error("private path");
+      }),
+    } as never);
+
+    const error = await runner.run(validRequest()).catch((value) => value);
+
+    expect(error).toMatchObject({
+      code: "CODEX_EXIT_FAILED",
+      diagnostics: ["TEMP_CLEANUP_FAILED"],
+    });
+    expect(String(error)).not.toContain("private path");
+  });
+
+  it("reports cleanup failure only when the main operation succeeded", async () => {
+    const fake = fakeSpawn(async (child, call) => {
+      await writeFile(outputPath(call.args), '{"ok":true}', "utf8");
+      child.finish(0);
+    });
+    const runner = createCodexRunner({
+      spawn: fake.spawn,
+      removeDirectory: vi.fn(async (path, options) => {
+        await rm(path, options);
+        throw new Error("private path");
+      }),
+    } as never);
+
+    await expect(runner.run(validRequest())).rejects.toMatchObject({
+      code: "CODEX_CLEANUP_FAILED",
+    });
+  });
+
+  it("keeps invalid-output semantics when cleanup also fails", async () => {
+    const fake = fakeSpawn(async (child, call) => {
+      await writeFile(outputPath(call.args), '{"ok":false}', "utf8");
+      child.finish(0);
+    });
+    const removeDirectory = vi.fn(async (path: string, options: { recursive: boolean; force: boolean }) => {
+      await rm(path, options);
+      throw new Error("private path");
+    });
+    const runner = createCodexRunner({ spawn: fake.spawn, removeDirectory } as never);
+    await expect(runner.run(validRequest())).rejects.toMatchObject({
+      code: "CODEX_INVALID_OUTPUT", diagnostics: ["TEMP_CLEANUP_FAILED"],
+    });
+  });
+
   it("reports a non-zero exit without exposing stderr", async () => {
     const fake = fakeSpawn((child) => {
       child.stderr.write("sensitive-stderr-marker");
@@ -219,5 +280,21 @@ describe("resolveCodexExecutable", () => {
 
   it("uses codex directly on non-Windows systems", () => {
     expect(resolveCodexExecutable({ platform: "linux", arch: "x64", env: {} })).toBe("codex");
+  });
+
+  it("rejects Windows discovery without APPDATA", () => {
+    expect(() => resolveCodexExecutable({
+      platform: "win32",
+      arch: "x64",
+      env: {},
+    })).toThrow(expect.objectContaining({ code: "CODEX_SPAWN_FAILED" }));
+  });
+
+  it("rejects an unsupported Windows architecture", () => {
+    expect(() => resolveCodexExecutable({
+      platform: "win32",
+      arch: "ia32",
+      env: { APPDATA: "C:\\Users\\demo\\AppData\\Roaming" },
+    })).toThrow(expect.objectContaining({ code: "CODEX_SPAWN_FAILED" }));
   });
 });
