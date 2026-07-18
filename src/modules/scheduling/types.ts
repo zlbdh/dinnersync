@@ -52,17 +52,22 @@ export type InfeasibleSchedule = {
 
 export type ScheduleResult = Schedule | InfeasibleSchedule;
 
+export type ActiveTaskLock = {
+  taskId: string;
+  actualStart: IsoInstant;
+  expectedEnd: IsoInstant;
+  effectiveResources: ResourceId[];
+} & (
+  | { status: "running"; lockUntil: IsoInstant }
+  | { status: "due"; lockUntil: null }
+);
+
 export type ReplanRequest = {
   request: ScheduleRequest;
   previous: Schedule;
   now: IsoInstant;
   completedTaskIds: string[];
-  activeTasks: Array<{
-    taskId: string;
-    status: "running" | "due";
-    actualStart: IsoInstant;
-    expectedEnd: IsoInstant;
-    lockUntil: IsoInstant | null;
-    effectiveResources: ResourceId[];
-  }>;
+  activeTasks: ActiveTaskLock[];
 };
+
+export type ReplanResult = ScheduleResult;
