@@ -85,6 +85,35 @@ describe("epoch conversion", () => {
     );
   });
 
+  it.each([
+    ["0000-01-01T00:00:00.000Z", "0000-01-01T00:00:00.000Z"],
+    ["2026-07-18T20:34:56.007+08:00", "2026-07-18T12:34:56.007Z"],
+    ["9999-12-31T23:59:59.999Z", "9999-12-31T23:59:59.999Z"],
+  ])("round-trips %s as canonical Z", (input, expected) => {
+    const epochMs = toEpochMs(input);
+    const canonical = fromEpochMs(epochMs);
+
+    expect(canonical).toBe(expected);
+    expect(parseIsoInstant(canonical).ok).toBe(true);
+    expect(toEpochMs(canonical)).toBe(epochMs);
+  });
+
+  it("rejects epochs immediately outside the canonical four-digit range", () => {
+    const minimum = toEpochMs("0000-01-01T00:00:00.000Z");
+    const maximum = toEpochMs("9999-12-31T23:59:59.999Z");
+
+    expect(() => fromEpochMs(minimum - 1)).toThrow(RangeError);
+    expect(() => fromEpochMs(maximum + 1)).toThrow(RangeError);
+  });
+
+  it.each([
+    "0000-01-01T00:00:00+23:59",
+    "9999-12-31T23:59:59.999-23:59",
+  ])("rejects a local four-digit value whose UTC instant is out of range: %s", (input) => {
+    expectInvalidInstant(input);
+    expect(() => toEpochMs(input)).toThrow(TypeError);
+  });
+
   it("rejects non-finite, fractional, unsafe, or out-of-range epochs", () => {
     expect(() => fromEpochMs(Number.NaN)).toThrow(TypeError);
     expect(() => fromEpochMs(Number.POSITIVE_INFINITY)).toThrow(TypeError);
@@ -107,6 +136,24 @@ describe("addMinutes", () => {
   it("supports negative integer minutes", () => {
     expect(addMinutes("2026-07-19T00:15:00Z", -30)).toBe(
       "2026-07-18T23:45:00.000Z",
+    );
+  });
+
+  it("stays canonical inside the four-digit boundaries", () => {
+    expect(addMinutes("0000-01-01T00:00:00.000Z", 1)).toBe(
+      "0000-01-01T00:01:00.000Z",
+    );
+    expect(addMinutes("9999-12-31T23:59:59.999Z", -1)).toBe(
+      "9999-12-31T23:58:59.999Z",
+    );
+  });
+
+  it("rejects arithmetic that crosses the four-digit boundaries", () => {
+    expect(() => addMinutes("0000-01-01T00:00:00.000Z", -1)).toThrow(
+      RangeError,
+    );
+    expect(() => addMinutes("9999-12-31T23:59:59.999Z", 1)).toThrow(
+      RangeError,
     );
   });
 

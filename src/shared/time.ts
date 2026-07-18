@@ -21,6 +21,37 @@ type InstantParts = {
 const ISO_INSTANT_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(Z|([+-])(\d{2}):(\d{2}))$/;
 
+function utcEpochMs(
+  year: number,
+  month: number,
+  day: number,
+  hour = 0,
+  minute = 0,
+  second = 0,
+  millisecond = 0,
+): number {
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  date.setUTCHours(hour, minute, second, millisecond);
+  return date.getTime();
+}
+
+const MIN_ISO_INSTANT_EPOCH_MS = utcEpochMs(0, 1, 1);
+const MAX_ISO_INSTANT_EPOCH_MS = utcEpochMs(
+  9999,
+  12,
+  31,
+  23,
+  59,
+  59,
+  999,
+);
+
+function isCanonicalEpochMs(epochMs: number): boolean {
+  return epochMs >= MIN_ISO_INSTANT_EPOCH_MS &&
+    epochMs <= MAX_ISO_INSTANT_EPOCH_MS;
+}
+
 function parseParts(input: string): InstantParts | undefined {
   const match = ISO_INSTANT_PATTERN.exec(input);
   if (!match) return undefined;
@@ -59,7 +90,7 @@ function parseParts(input: string): InstantParts | undefined {
   }
 
   const offsetSign = match[9] === "-" ? -1 : 1;
-  return {
+  const parts = {
     year,
     month,
     day,
@@ -69,18 +100,19 @@ function parseParts(input: string): InstantParts | undefined {
     millisecond,
     offsetMinutes: offsetSign * (offsetHour * 60 + offsetMinute),
   };
+  return isCanonicalEpochMs(partsToEpochMs(parts)) ? parts : undefined;
 }
 
 function partsToEpochMs(parts: InstantParts): number {
-  const local = new Date(0);
-  local.setUTCFullYear(parts.year, parts.month - 1, parts.day);
-  local.setUTCHours(
+  return utcEpochMs(
+    parts.year,
+    parts.month,
+    parts.day,
     parts.hour,
     parts.minute,
     parts.second,
     parts.millisecond,
-  );
-  return local.getTime() - parts.offsetMinutes * 60_000;
+  ) - parts.offsetMinutes * 60_000;
 }
 
 export function parseIsoInstant(
@@ -113,6 +145,9 @@ export function fromEpochMs(epochMs: number): IsoInstant {
   }
   if (!Number.isSafeInteger(epochMs)) {
     throw new RangeError("epochMs must be a safe integer");
+  }
+  if (!isCanonicalEpochMs(epochMs)) {
+    throw new RangeError("epochMs is outside the four-digit ISO year range");
   }
 
   const instant = new Date(epochMs);
