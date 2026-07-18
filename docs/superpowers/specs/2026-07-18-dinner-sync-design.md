@@ -1,7 +1,7 @@
 # DinnerSync 产品与技术设计
 
 日期：2026-07-18
-状态：Revision 2 完成，待复审
+状态：Revision 3 完成，待复审
 比赛：OpenAI Build Week 2026
 赛道：Apps for Your Life
 
@@ -154,9 +154,9 @@ plannedGrams = sourceGrams * targetServings / sourceServings
 
 `sourceGrams` 表示原菜谱重量，`plannedGrams` 表示当前晚餐实际计划重量。份量变化只缩放食材重量，不自动缩放步骤时长；所有受影响时长仍需用户确认。
 
-修改 `targetServings` 后，系统必须立即使所有 `plannedGrams`、营养汇总和既有排程失效，并把相关步骤时长重置为 `needs-review`。只有重新计算重量、重新确认时长并通过字段门禁后，才能再次生成热量与时间线。
+修改 `targetServings` 后，系统必须立即使所有 `plannedGrams`、营养汇总和既有排程失效，并把该菜谱全部步骤字段重置为 `needs-review`。只有重新计算重量、重新确认全部步骤并通过字段门禁后，才能再次生成热量与时间线。
 
-`omitted` 只表示用户明确决定晚餐中不使用该食材，该食材不进入计划重量和营养计算；所有引用它的步骤必须重新核对。仍会使用但无法匹配营养记录的食材不得标为 `omitted`，必须保持已使用且未解析状态。
+`omitted` 只表示用户明确决定晚餐中不使用该食材，该食材不进入计划重量和营养计算；此操作会把该菜谱全部步骤字段重置为 `needs-review`。仍会使用但无法匹配营养记录的食材不得标为 `omitted`，必须保持已使用且未解析状态。
 
 若任何实际使用的食材缺少可靠克数或营养记录，界面只能显示“已知热量小计”和未解析清单，必须禁用“达到热量目标”的结论。P0 不提供食材替换。
 
@@ -196,9 +196,10 @@ plannedGrams = sourceGrams * targetServings / sourceServings
 scheduled -> ready -> running -> due -> completed
 ```
 
-- 前置任务完成且计划开始时间已到后进入 `ready`；
-- 只有用户点击 Start 才进入 `running` 并记录 `actualStart`；
+- 前置任务完成、计划开始时间已到且全部所需资源当前可用后，才能进入 `ready`；
+- 只有用户点击 Start 且系统再次原子验证资源可用后，才进入 `running`，记录 `actualStart` 并计算 `expectedEnd`；
 - 预计结束时间到达只进入 `due`，不得自动完成，资源继续锁定；
+- `running` 或 `due` 任务占用的资源不可被其他任务使用；冲突任务保持 `scheduled`，冲突 Start 请求必须拒绝；
 - 用户点击 Complete 后进入 `completed` 并记录 `actualEnd`；
 - 实际开始或完成偏离计划时，使用与延迟事件相同的重排逻辑更新剩余任务；
 - 刷新后根据持久化事件和时间戳恢复 `ready`、`running` 或 `due`，绝不把过期任务自动标为完成。
@@ -415,11 +416,13 @@ P0 仅支持克、千克、毫升、升以及演示数据集中明确配置的�
 
 会话通过事件驱动：
 
-- `TASK_STARTED`：仅允许 `ready` 任务触发，记录 `actualStart`；
-- `TASK_DELAYED`：仅允许选择 `running` 或 `due` 任务，延长其预计结束时间和资源锁；
-- `TASK_DUE`：由时钟把到时的 `running` 任务转为 `due`，不释放资源；
+- `TASK_STARTED`：仅允许 `ready` 任务触发；处理事件时必须再次原子验证资源空闲，随后记录 `actualStart`，并用实际开始时间加持续时长计算 `expectedEnd`；
+- `TASK_DELAYED`：仅允许选择 `running` 或 `due` 任务，更新 `expectedEnd` 并延长其资源锁；
+- `TASK_DUE`：当当前时间达到 `expectedEnd` 时，把 `running` 任务转为 `due`，不释放资源；
 - `TASK_COMPLETED`：由用户触发，记录 `actualEnd`、释放资源并重排剩余任务；
 - `SESSION_RESTORED`：从事件与时间戳重建状态，不自动补写完成事件。
+
+`running` 和 `due` 任务始终占用其资源。资源冲突的任务保持 `scheduled`，不得进入 `ready`；任何冲突的 Start 请求必须返回结构化拒绝结果。Complete 释放资源后，状态机重新评估等待任务并重排。
 
 任务到时不等于完成。总结页的实际数据只来自 `actualStart`、`actualEnd` 和显式事件。Hosted Demo 的加速回放只自动注入同样的 Start、Due、Delay 和 Complete 事件，不使用第二套状态逻辑。
 
@@ -431,7 +434,7 @@ P0 仅支持克、千克、毫升、升以及演示数据集中明确配置的�
 
 ## 8. 核心数据契约
 
-### 8.1 EvidenceSpan
+### 8.1 导入核对契约
 
 ```ts
 type EvidenceSpan = {
@@ -441,26 +444,66 @@ type EvidenceSpan = {
 };
 
 type Provenance = "source" | "inferred";
+
+type ReviewValue<T> = {
+  value: T | null;
+  provenance: Provenance;
+  evidence: EvidenceSpan | null;
+  inferenceReason: string | null;
+  confidence: number;
+  status: "needs-review" | "confirmed";
+};
+
+type RecipeDraft = {
+  id: string;
+  sourceText: string;
+  name: ReviewValue<string>;
+  sourceServings: ReviewValue<number>;
+  ingredients: IngredientDraft[];
+  steps: CookingStepDraft[];
+};
+
+type IngredientDraft = {
+  id: string;
+  sourceText: string;
+  name: ReviewValue<string>;
+  quantity: ReviewValue<number>;
+  unit: ReviewValue<string>;
+};
+
+type CookingStepDraft = {
+  id: string;
+  sourceText: string;
+  instruction: ReviewValue<string>;
+  durationMinutes: ReviewValue<number>;
+  mode: ReviewValue<"active" | "passive">;
+  dependsOn: ReviewValue<string[]>;
+  resources: ReviewValue<ResourceRequirement[]>;
+  isTerminal: ReviewValue<boolean>;
+};
 ```
 
-`EvidenceSpan` 使用 JavaScript UTF-16 code unit 偏移和左闭右开区间 `[start, end)`。当 `provenance === "source"` 时 `evidence` 必须非空且可由 `sourceText.slice(start, end)` 精确复算；当 `provenance === "inferred"` 时 `evidence` 必须为 `null`，`inferenceReason` 必须非空。
+`ReviewValue` 是 AI 导入阶段的字段级包装，菜名、原份数、食材名称/数量/单位，以及步骤说明/时长/模式/依赖/资源/terminal 标记都必须独立核对。
 
-### 8.2 Recipe
+`EvidenceSpan` 使用 JavaScript UTF-16 code unit 偏移和左闭右开区间 `[start, end)`。当 `provenance === "source"` 时 `evidence` 必须非空且可由对应记录的 `sourceText.slice(start, end)` 精确复算；当 `provenance === "inferred"` 时 `evidence` 必须为 `null`，`inferenceReason` 必须非空。
+
+`RecipeDraft` 是编辑与复核的真源。只有所有排程必需的 `ReviewValue` 均为 `confirmed` 后，转换器才生成不含 AI 元数据的纯领域对象。修改份量或省略食材会丢弃已生成的领域对象，并把该菜谱全部步骤字段重新设为 `needs-review`。
+
+### 8.2 已确认 Recipe
 
 ```ts
 type Recipe = {
   id: string;
   name: string;
   sourceText: string;
-  sourceServings: number | null;
+  sourceServings: number;
   targetServings: number;
   ingredients: Ingredient[];
   steps: CookingStep[];
-  reviewStatus: "needs-review" | "confirmed";
 };
 ```
 
-### 8.3 Ingredient
+### 8.3 已确认 Ingredient
 
 ```ts
 type Ingredient = {
@@ -472,15 +515,11 @@ type Ingredient = {
   sourceGrams: number | null;
   plannedGrams: number | null;
   nutritionRefId: string | null;
-  confidence: number;
-  evidence: EvidenceSpan | null;
-  provenance: Provenance;
-  inferenceReason: string | null;
-  status: "confirmed" | "needs-review" | "omitted";
+  status: "used" | "omitted";
 };
 ```
 
-### 8.4 CookingStep
+### 8.4 已确认 CookingStep
 
 ```ts
 type CookingStep = {
@@ -488,16 +527,11 @@ type CookingStep = {
   recipeId: string;
   sourceText: string;
   instruction: string;
-  durationMinutes: number | null;
+  durationMinutes: number;
   mode: "active" | "passive";
   dependsOn: string[];
   resources: ResourceRequirement[];
   isTerminal: boolean;
-  confidence: number;
-  evidence: EvidenceSpan | null;
-  provenance: Provenance;
-  inferenceReason: string | null;
-  status: "confirmed" | "needs-review";
 };
 ```
 
@@ -527,6 +561,7 @@ type TaskRuntimeState = {
   status: "scheduled" | "ready" | "running" | "due" | "completed";
   plannedStart: string;
   plannedEnd: string;
+  expectedEnd: string | null;
   actualStart: string | null;
   actualEnd: string | null;
 };
@@ -622,6 +657,9 @@ type TaskRuntimeState = {
 - 时间戳恢复；
 - `scheduled -> ready -> running -> due -> completed` 状态转换；
 - 到时不自动完成且继续占用资源；
+- `due` 任务阻止相同资源的后续任务进入 `ready`；
+- 资源冲突的 Start 请求被拒绝；
+- Start 和 Delay 正确设置或更新 `expectedEnd`；
 - Start、Delay 和 Complete 的事件合法性；
 - 实际开始/结束偏差触发统一重排；
 - 页面刷新后的状态恢复；
