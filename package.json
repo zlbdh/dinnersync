@@ -16,6 +16,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "smoke:codex": "tsx scripts/codex-smoke.mjs",
     "check:files": "node scripts/check-file-lengths.mjs",
     "verify": "npm run check:files && npm run lint && npm run typecheck && npm run test && npm run build"
   },
@@ -44,6 +45,7 @@
     "eslint-config-next": "16.2.10",
     "jsdom": "29.1.1",
     "tailwindcss": "4.3.3",
+    "tsx": "4.23.1",
     "typescript": "5.9.3",
     "vite": "7.3.6",
     "vite-tsconfig-paths": "6.1.1",
