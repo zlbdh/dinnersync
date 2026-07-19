@@ -16,7 +16,7 @@ Unchecked items above the final-state section block final Devpost submission. Th
 - [x] Hosted Demo opens without login: [https://ds.zlbdh.site:8443](https://ds.zlbdh.site:8443).
 - [x] Hosted Demo completes the full fixed replay from an unsigned browser.
 - [x] Public repository URL: [https://github.com/zlbdh/dinnersync](https://github.com/zlbdh/dinnersync).
-- [ ] Repository opens without login and contains the final commit history.
+- [x] Repository opens without login and contains the final commit history.
 - [x] Repository contains an MIT `LICENSE` file.
 - [x] Public YouTube/video URL: [https://youtu.be/m6pEglt6Rxc](https://youtu.be/m6pEglt6Rxc).
 - [x] Video resolves without login through YouTube's public oEmbed endpoint.
@@ -60,7 +60,7 @@ Unchecked items above the final-state section block final Devpost submission. Th
 - [x] Public `/api/local-ai/status` returns 404.
 - [x] Public `/api/local-ai/import` returns 404.
 - [x] `git diff --check` passes.
-- [ ] `git status --short` contains only intentional release changes before commit and is empty after push.
+- [x] `git status --short` contained only intentional release changes before commit and was empty after push.
 
 ## Responsive and accessibility checks
 
