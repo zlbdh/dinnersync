@@ -1,33 +1,15 @@
 "use client";
 
-import { useEffect, useReducer, useRef, useState } from "react";
+import { DEMO_NUTRITION_CATALOG } from "@/modules/demo";
 
-import {
-  DEMO_REVIEW_STATES,
-  DEMO_NUTRITION_CATALOG,
-  DEMO_SCENARIO,
-  DEMO_SOURCE_RECIPES,
-} from "@/modules/demo";
-import {
-  createDinnerPlannerState,
-  buildDinnerPlan,
-  dinnerPlannerReducer,
-  type DinnerPlanSettings,
-} from "@/modules/dinner-planner";
-import type { RecipeReviewAction } from "@/modules/recipe-import";
-
-import {
-  requestLocalAiImport,
-  type LocalAiImportMeta,
-} from "./local-ai-import";
+import { CookScreen } from "./cook-screen";
+import { PlanScreen } from "./plan-screen";
 import { ReviewScreen } from "./review-screen";
-import { SetupScreen, type SetupFormValues } from "./setup-screen";
-import { setupValuesToSettings } from "./setup-settings";
-import { PlanHandoff } from "./plan-handoff";
+import { SetupScreen } from "./setup-screen";
+import { SummaryScreen } from "./summary-screen";
 import { ProgressRail } from "./ui/progress-rail";
 import { StatusChip } from "./ui/status-chip";
-
-type Mode = "hosted" | "local";
+import { useDinnerSyncController } from "./use-dinner-sync-controller";
 
 const PROGRESS_STEP = {
   setup: "Setup",
@@ -37,169 +19,17 @@ const PROGRESS_STEP = {
   summary: "Summary",
 } as const;
 
-const INITIAL_VALUES: SetupFormValues = {
-  recipeTexts: ["", "", ""],
-  diners: DEMO_SCENARIO.diners,
-  availableTime: "18:00",
-  serveTime: "19:00",
-  targetKcalPerPerson: "",
-  burners: DEMO_SCENARIO.kitchen.burners,
-  notes: "",
-};
-
-const INITIAL_SETTINGS = {
-  diners: DEMO_SCENARIO.diners,
-  availableFrom: DEMO_SCENARIO.availableFrom,
-  serveAt: DEMO_SCENARIO.serveAt,
-  targetKcalPerPerson: null,
-  kitchen: { ...DEMO_SCENARIO.kitchen },
-  serveToleranceMinutes: DEMO_SCENARIO.serveToleranceMinutes,
-} satisfies DinnerPlanSettings;
-
-const DEMO_SETTINGS = {
-  ...INITIAL_SETTINGS,
-  targetKcalPerPerson: DEMO_SCENARIO.targetKcalPerPerson,
-} satisfies DinnerPlanSettings;
-
 export function DinnerSyncApp() {
-  const [planner, dispatch] = useReducer(
-    dinnerPlannerReducer,
-    createDinnerPlannerState(INITIAL_SETTINGS, []),
-  );
-  const [mode, setMode] = useState<Mode>("hosted");
-  const [values, setValues] = useState(INITIAL_VALUES);
-  const [consentToSend, setConsentToSend] = useState(false);
-  const [localNotice, setLocalNotice] = useState<string | null>(null);
-  const [localMeta, setLocalMeta] = useState<LocalAiImportMeta | null>(null);
-  const [localBusy, setLocalBusy] = useState(false);
-  const requestGeneration = useRef(0);
-  const activeRequest = useRef<AbortController | null>(null);
-
-  useEffect(() => () => {
-    requestGeneration.current += 1;
-    activeRequest.current?.abort();
-    activeRequest.current = null;
-  }, []);
-
-  const cancelLocalRequest = () => {
-    requestGeneration.current += 1;
-    activeRequest.current?.abort();
-    activeRequest.current = null;
-    setLocalBusy(false);
-  };
-
-  const changeMode = (nextMode: Mode) => {
-    cancelLocalRequest();
-    setMode(nextMode);
-    setConsentToSend(false);
-    setLocalNotice(null);
-    setLocalMeta(null);
-    setValues({ ...INITIAL_VALUES, recipeTexts: ["", "", ""] });
-    dispatch({
-      type: "RESET",
-      settings: INITIAL_SETTINGS,
-      reviewStates: [],
-    });
-  };
-
-  const loadDemo = () => {
-    cancelLocalRequest();
-    setMode("hosted");
-    setConsentToSend(false);
-    setLocalNotice(null);
-    setLocalMeta(null);
-    setValues({
-      ...INITIAL_VALUES,
-      recipeTexts: [
-        DEMO_SOURCE_RECIPES[0].sourceText,
-        DEMO_SOURCE_RECIPES[1].sourceText,
-        DEMO_SOURCE_RECIPES[2].sourceText,
-      ],
-      targetKcalPerPerson: String(DEMO_SCENARIO.targetKcalPerPerson),
-    });
-    dispatch({
-      type: "RESET",
-      settings: DEMO_SETTINGS,
-      reviewStates: DEMO_REVIEW_STATES.map((review) => structuredClone(review)),
-    });
-    dispatch({ type: "STAGE_CHANGED", stage: "review" });
-  };
-
-  const prepareLocalReview = async (recipeTexts: string[]) => {
-    if (localBusy) return;
-    const nextSettings = setupValuesToSettings(values);
-    if (!nextSettings.ok) {
-      setLocalNotice(nextSettings.message);
-      return;
-    }
-
-    const generation = requestGeneration.current + 1;
-    requestGeneration.current = generation;
-    const controller = new AbortController();
-    activeRequest.current?.abort();
-    activeRequest.current = controller;
-    setLocalBusy(true);
-    setLocalMeta(null);
-    setLocalNotice("Checking local Codex availability before any recipe text is sent.");
-    dispatch({ type: "SETTINGS_CHANGED", settings: nextSettings.value });
-
-    const result = await requestLocalAiImport({
-      recipes: [...recipeTexts],
-      diners: nextSettings.value.diners,
-      signal: controller.signal,
-    });
-    if (generation !== requestGeneration.current) return;
-
-    if (!result.ok) {
-      if (result.code !== "LOCAL_AI_ABORTED") setLocalNotice(result.message);
-    } else {
-      setLocalNotice(null);
-      setLocalMeta(result.meta);
-      dispatch({
-        type: "RESET",
-        settings: nextSettings.value,
-        reviewStates: result.reviewStates,
-      });
-      dispatch({ type: "STAGE_CHANGED", stage: "review" });
-    }
-
-    if (generation === requestGeneration.current) {
-      activeRequest.current = null;
-      setLocalBusy(false);
-    }
-  };
-
-  const returnToSetup = () => {
-    cancelLocalRequest();
-    setLocalNotice(null);
-    setLocalMeta(null);
-    dispatch({
-      type: "RESET",
-      settings: planner.settings,
-      reviewStates: planner.reviewStates,
-    });
-  };
-
-  const reviewChanged = (recipeId: string, action: RecipeReviewAction) => {
-    dispatch({ type: "REVIEW_CHANGED", recipeId, action });
-  };
-
-  const planAttempt = planner.stage === "review"
-    ? buildDinnerPlan({
-      settings: planner.settings,
-      reviewStates: planner.reviewStates,
-      nutritionCatalog: DEMO_NUTRITION_CATALOG,
-    })
-    : null;
-
-  const buildPlan = () => {
-    if (!planAttempt) return;
-    if (planAttempt.ok) {
-      dispatch({ type: "PLAN_BUILT", plan: planAttempt.value });
-    } else {
-      dispatch({ type: "ERRORS_CHANGED", errors: planAttempt.error });
-    }
-  };
+  const flow = useDinnerSyncController();
+  const { planner } = flow;
+  const originTone = !flow.hydrated
+    ? "neutral"
+    : flow.origin === "hosted" ? "complete" : flow.origin === "local" ? "time" : "neutral";
+  const originLabel = !flow.hydrated
+    ? "Checking saved session"
+    : flow.origin === "hosted"
+      ? "Hosted · no model"
+      : flow.origin === "local" ? "Local AI · Codex" : "Restored · origin unavailable";
 
   return (
     <main className="app-shell" id="top">
@@ -209,49 +39,84 @@ export function DinnerSyncApp() {
           <h1>DinnerSync</h1>
         </a>
         <p>Plan together. Cook on time.</p>
-        <StatusChip tone={mode === "hosted" ? "complete" : "time"}>
-          {mode === "hosted" ? "Hosted · no model" : "Local AI · Codex"}
-        </StatusChip>
+        <StatusChip tone={originTone}>{originLabel}</StatusChip>
       </header>
 
       <ProgressRail current={PROGRESS_STEP[planner.stage]} />
 
-      {planner.stage === "setup" ? (
+      {flow.hydrated && planner.stage !== "cook" && planner.warnings.length > 0 && (
+        <aside className="local-notice" role="status" aria-label="Planner storage warnings">
+          <strong>Saved session notice</strong>
+          <ul>{planner.warnings.map((warning) => (
+            <li key={`${warning.code}:${warning.message}`}>{warning.message}</li>
+          ))}</ul>
+        </aside>
+      )}
+
+      {flow.hydrated && planner.stage === "setup" && (
+        <SetupScreen
+          mode={flow.mode}
+          values={flow.values}
+          consentToSend={flow.consentToSend}
+          isSubmitting={flow.localBusy}
+          localNotice={flow.localNotice}
+          onModeChange={flow.changeMode}
+          onValuesChange={flow.setValues}
+          onConsentChange={flow.setConsentToSend}
+          onLoadDemo={flow.loadDemo}
+          onSubmit={flow.prepareLocalReview}
+        />
+      )}
+
+      {flow.hydrated && planner.stage === "review" && (
         <>
-          <SetupScreen
-            mode={mode}
-            values={values}
-            consentToSend={consentToSend}
-            isSubmitting={localBusy}
-            localNotice={localNotice}
-            onModeChange={changeMode}
-            onValuesChange={setValues}
-            onConsentChange={setConsentToSend}
-            onLoadDemo={loadDemo}
-            onSubmit={prepareLocalReview}
-          />
-        </>
-      ) : planner.stage === "review" ? (
-        <>
-          {mode === "local" && localMeta && (
+          {flow.mode === "local" && flow.localMeta && (
             <p className="local-notice" role="status">
-              Verified import · {localMeta.provider} · {localMeta.model} · schema and source evidence checked. Every field still needs your review.
+              Verified import · {flow.localMeta.provider} · {flow.localMeta.model} · schema and source evidence checked. Every field still needs your review.
             </p>
           )}
           <ReviewScreen
             reviewStates={planner.reviewStates}
             nutritionCatalog={DEMO_NUTRITION_CATALOG}
-            mode={mode}
-            note={values.notes}
-            planReady={planAttempt?.ok === true}
-            planErrors={planAttempt && !planAttempt.ok ? planAttempt.error : []}
-            onReviewChange={reviewChanged}
-            onBuildPlan={buildPlan}
-            onBack={returnToSetup}
+            mode={flow.origin ?? "unknown"}
+            note={flow.values.notes}
+            planReady={flow.planAttempt?.ok === true}
+            planErrors={flow.planAttempt && !flow.planAttempt.ok ? flow.planAttempt.error : []}
+            onReviewChange={flow.reviewChanged}
+            onBuildPlan={flow.buildPlan}
+            onBack={flow.returnToSetup}
           />
         </>
-      ) : (
-        <PlanHandoff onBack={returnToSetup} />
+      )}
+
+      {flow.hydrated && planner.stage === "plan" && planner.plan && (
+        <PlanScreen
+          plan={planner.plan}
+          onStartCooking={flow.startCooking}
+          onBack={flow.returnToSetup}
+        />
+      )}
+
+      {flow.hydrated && planner.stage === "cook" && planner.session && (
+        <CookScreen
+          session={planner.session}
+          now={flow.now}
+          onDispatch={flow.dispatchCookCommand}
+          onAccelerate={flow.runAcceleratedDemo}
+          playbackRate={60}
+          restoredFromStorage={flow.restoredFromStorage}
+          plannerWarnings={planner.warnings}
+        />
+      )}
+
+      {flow.hydrated && planner.stage === "summary" && (
+        <SummaryScreen
+          plan={planner.plan}
+          session={planner.session}
+          diners={planner.settings.diners}
+          onReturnToSetup={flow.returnToSetup}
+          onRestart={flow.restart}
+        />
       )}
     </main>
   );

@@ -15,7 +15,7 @@ import { Button } from "./ui/button";
 export type ReviewScreenProps = {
   reviewStates: readonly RecipeReviewState[];
   nutritionCatalog: readonly NutritionRecord[];
-  mode: "hosted" | "local";
+  mode: "hosted" | "local" | "unknown";
   note: string;
   planReady: boolean;
   planErrors: readonly ReviewPlanError[];
@@ -61,8 +61,10 @@ export function ReviewScreen(props: ReviewScreenProps) {
         </h2>
         {props.mode === "hosted" ? (
           <p><strong>Built-in reviewed fixture</strong><span>No model request was made</span></p>
-        ) : (
+        ) : props.mode === "local" ? (
           <p><strong>AI proposed the structure. You decide what becomes part of the plan.</strong></p>
+        ) : (
+          <p><strong>Restored reviewed plan</strong><span>Origin metadata was unavailable, so no model claim is shown.</span></p>
         )}
       </header>
       <nav className="review-shortcuts" aria-label="Review shortcuts">

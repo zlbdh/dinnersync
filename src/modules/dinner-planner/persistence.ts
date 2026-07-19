@@ -6,6 +6,7 @@ import {
 import { buildDinnerPlan } from "./build-plan";
 import { createDinnerPlannerState, dinnerPlannerReducer } from "./reducer";
 import {
+  markValidatedDinnerPlannerState,
   validDinnerPlanSettings,
   validRecipeReviewStates,
 } from "./snapshot-validation";
@@ -22,6 +23,7 @@ import type {
 
 const SNAPSHOT_KEYS = [
   "version",
+  "revision",
   "stage",
   "settings",
   "reviewStates",
@@ -34,6 +36,8 @@ const SNAPSHOT_KEYS = [
 const STAGES = new Set<DinnerPlannerStage>([
   "setup", "review", "plan", "cook", "summary",
 ]);
+const MAX_SERIALIZED_SNAPSHOT_CHARS = 4 * 1024 * 1024;
+const REVISION_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const STORAGE_WARNING: DinnerPlannerWarning = {
   category: "storage",
   code: "STORAGE_UNAVAILABLE",
@@ -77,10 +81,14 @@ function reset(seed: DinnerPlannerPersistenceSeed) {
 }
 
 function parseSnapshot(serialized: string): DinnerPlannerSnapshotV1 | null {
+  if (serialized.length > MAX_SERIALIZED_SNAPSHOT_CHARS) return null;
   try {
     const value: unknown = JSON.parse(serialized);
     if (!isRecord(value) || !exactKeys(value, SNAPSHOT_KEYS)
-      || value.version !== 1 || !STAGES.has(value.stage as DinnerPlannerStage)
+      || value.version !== 1
+      || (value.revision !== null
+        && (typeof value.revision !== "string" || !REVISION_PATTERN.test(value.revision)))
+      || !STAGES.has(value.stage as DinnerPlannerStage)
       || !validDinnerPlanSettings(value.settings)
       || !validRecipeReviewStates(value.reviewStates)
       || !Array.isArray(value.recipes)) return null;
@@ -124,11 +132,24 @@ function recomputePlan(
     ? plan : false;
 }
 
+function hasReachableSnapshotShape(snapshot: DinnerPlannerSnapshotV1) {
+  if (snapshot.stage !== "setup" && snapshot.reviewStates.length === 0) return false;
+  const stored = hasStoredPlan(snapshot);
+  if (snapshot.stage === "setup" || snapshot.stage === "review") {
+    return stored.allMissing && snapshot.session === null;
+  }
+  if (snapshot.stage === "plan") {
+    return stored.allPresent && snapshot.session === null;
+  }
+  return stored.allPresent && snapshot.session !== null;
+}
+
 function restoreValid(
   snapshot: DinnerPlannerSnapshotV1,
   seed: DinnerPlannerPersistenceSeed,
   now: string,
 ): DinnerPlannerState | null {
+  if (!hasReachableSnapshotShape(snapshot)) return null;
   const plan = recomputePlan(snapshot, seed);
   if (plan === false) return null;
   const noPlanStage = snapshot.stage === "setup" || snapshot.stage === "review";
@@ -168,9 +189,14 @@ function restoreValid(
 
 export function snapshotDinnerPlanner(
   state: DinnerPlannerState,
+  revision: string | null = null,
 ): DinnerPlannerSnapshotV1 {
+  if (revision !== null && !REVISION_PATTERN.test(revision)) {
+    throw new Error("Planner persistence revision must be a UUID v4.");
+  }
   return structuredClone({
     version: 1,
+    revision,
     stage: state.stage,
     settings: state.settings,
     reviewStates: state.reviewStates,
@@ -182,8 +208,16 @@ export function snapshotDinnerPlanner(
   });
 }
 
-export function serializeDinnerPlanner(state: DinnerPlannerState) {
-  return JSON.stringify(snapshotDinnerPlanner(state));
+export function serializeDinnerPlanner(
+  state: DinnerPlannerState,
+  revision: string | null = null,
+) {
+  return JSON.stringify(snapshotDinnerPlanner(state, revision));
+}
+
+export function readDinnerPlannerRevision(serialized: string | null) {
+  if (serialized === null) return null;
+  return parseSnapshot(serialized)?.revision ?? null;
 }
 
 export function restoreDinnerPlanner(
@@ -191,13 +225,15 @@ export function restoreDinnerPlanner(
   seed: DinnerPlannerPersistenceSeed,
   now: string,
 ): DinnerPlannerState {
-  if (serialized === null) return fresh(seed);
+  if (serialized === null) return markValidatedDinnerPlannerState(fresh(seed));
   const snapshot = parseSnapshot(serialized);
-  if (!snapshot) return reset(seed);
+  if (!snapshot) return markValidatedDinnerPlannerState(reset(seed));
   try {
-    return restoreValid(snapshot, seed, now) ?? reset(seed);
+    return markValidatedDinnerPlannerState(
+      restoreValid(snapshot, seed, now) ?? reset(seed),
+    );
   } catch {
-    return reset(seed);
+    return markValidatedDinnerPlannerState(reset(seed));
   }
 }
 
@@ -225,8 +261,8 @@ export function createDinnerPlannerPersistence(
   const warn = (state: DinnerPlannerState) =>
     unavailable ? addWarning(state, STORAGE_WARNING) : state;
   return {
-    save(state) {
-      memory = serializeDinnerPlanner(state);
+    save(state, revision = null) {
+      memory = serializeDinnerPlanner(state, revision);
       const storage = accessStorage();
       if (storage) {
         try {

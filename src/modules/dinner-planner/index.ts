@@ -2,6 +2,7 @@ export { buildDinnerPlan } from "./build-plan";
 export { createDinnerPlannerState, dinnerPlannerReducer } from "./reducer";
 export {
   createDinnerPlannerPersistence,
+  readDinnerPlannerRevision,
   restoreDinnerPlanner,
   serializeDinnerPlanner,
   snapshotDinnerPlanner,

@@ -22,6 +22,7 @@ function contrastRatio(first: string, second: string) {
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   vi.unstubAllGlobals();
 });
 
@@ -32,6 +33,20 @@ describe("Home page", () => {
     expect(
       screen.getByRole("heading", { level: 1, name: "DinnerSync" }),
     ).toBeInTheDocument();
+  });
+
+  it("keeps the persistence status neutral until hydration completes", () => {
+    const queued: VoidFunction[] = [];
+    vi.stubGlobal("queueMicrotask", (callback: VoidFunction) => {
+      queued.push(callback);
+    });
+
+    render(<Page />);
+
+    expect(screen.getByText("Checking saved session")).toBeInTheDocument();
+    expect(screen.queryByText("Restored · origin unavailable")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Try the 650 kcal demo" }))
+      .not.toBeInTheDocument();
   });
 
   it("keeps focus treatment visible and burner controls touch sized", () => {
@@ -62,7 +77,7 @@ describe("Home page", () => {
     vi.stubGlobal("fetch", fetchSpy);
     render(<Page />);
 
-    await user.click(screen.getByRole("button", { name: "Try the 650 kcal demo" }));
+    await user.click(await screen.findByRole("button", { name: "Try the 650 kcal demo" }));
 
     expect(screen.getByRole("heading", {
       name: /review every field before the clock starts/i,
@@ -78,7 +93,7 @@ describe("Home page", () => {
       .toHaveFocus();
     await user.click(screen.getByRole("button", { name: /back to setup/i }));
     expect(screen.getByRole("heading", { name: /set the table/i })).toHaveFocus();
-    await user.click(screen.getByRole("radio", { name: /local ai/i }));
+    await user.click(await screen.findByRole("radio", { name: /local ai/i }));
     expect(screen.getByRole("textbox", { name: /recipe 1/i })).toHaveValue("");
     expect(screen.getByRole("spinbutton", { name: /target kcal/i })).toHaveValue(null);
     expect(screen.getByRole("checkbox", { name: /send these recipes/i })).not.toBeChecked();
@@ -101,7 +116,7 @@ describe("Home page", () => {
     vi.stubGlobal("fetch", fetchSpy);
     render(<Page />);
 
-    await user.click(screen.getByRole("radio", { name: /local ai/i }));
+    await user.click(await screen.findByRole("radio", { name: /local ai/i }));
     const firstRecipe = screen.getByRole("textbox", { name: /recipe 1/i });
     await user.type(firstRecipe, "One complete recipe");
     await user.click(screen.getByRole("checkbox", { name: /send these recipes/i }));

@@ -1,3 +1,7 @@
+import {
+  advanceSessionTime,
+  applySessionCommand,
+} from "@/modules/cooking-session";
 import { recipeReviewReducer } from "@/modules/recipe-import";
 import type { RecipeReviewState } from "@/modules/recipe-import";
 import type { ScheduleIssue } from "@/modules/scheduling";
@@ -9,6 +13,7 @@ import type {
   DinnerPlannerError,
   DinnerPlannerState,
 } from "./types";
+import { isValidatedDinnerPlannerState } from "./snapshot-validation";
 
 function scheduleErrors(plan: DinnerPlan): DinnerPlannerError[] {
   if (plan.schedule.feasible) return [];
@@ -71,6 +76,11 @@ export function dinnerPlannerReducer(
   state: DinnerPlannerState,
   action: DinnerPlannerAction,
 ): DinnerPlannerState {
+  if (action.type === "VALIDATED_STATE_RESTORED") {
+    return isValidatedDinnerPlannerState(action.state)
+      ? structuredClone(action.state)
+      : state;
+  }
   if (action.type === "REVIEW_CHANGED") {
     const index = state.reviewStates.findIndex((entry) =>
       entry.draft.id === action.recipeId);
@@ -111,6 +121,19 @@ export function dinnerPlannerReducer(
       || !sameJson(action.session.request, state.plan.scheduleRequest)
       || !sameJson(action.session.initialSchedule, state.plan.schedule)) return state;
     return { ...state, stage: "cook", session: structuredClone(action.session) };
+  }
+  if (action.type === "SESSION_COMMAND") {
+    if (state.stage !== "cook" || state.session === null) return state;
+    const advanced = advanceSessionTime(state.session, action.command.at);
+    const session = applySessionCommand(advanced, action.command);
+    if (session === state.session) return state;
+    const next = { ...state, session };
+    return canFinishCooking(next) ? { ...next, stage: "summary" } : next;
+  }
+  if (action.type === "SESSION_TIME_ADVANCED") {
+    if (state.stage !== "cook" || state.session === null) return state;
+    const session = advanceSessionTime(state.session, action.now);
+    return session === state.session ? state : { ...state, session };
   }
   if (action.type === "STAGE_CHANGED") {
     if (state.stage === "setup" && action.stage === "review"

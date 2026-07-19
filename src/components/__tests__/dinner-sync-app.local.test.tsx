@@ -11,6 +11,7 @@ import { DinnerSyncApp } from "../dinner-sync-app";
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   vi.unstubAllGlobals();
 });
 
@@ -38,7 +39,7 @@ const IMPORT_OK = {
 };
 
 async function fillLocalRecipe(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("radio", { name: /local ai/i }));
+  await user.click(await screen.findByRole("radio", { name: /local ai/i }));
   fireEvent.change(screen.getByRole("textbox", { name: /recipe 1/i }), {
     target: { value: DEMO_SOURCE_RECIPES[0].sourceText },
   });

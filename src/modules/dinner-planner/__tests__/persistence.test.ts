@@ -11,6 +11,7 @@ import {
   buildDinnerPlan,
   createDinnerPlannerPersistence,
   createDinnerPlannerState,
+  readDinnerPlannerRevision,
   restoreDinnerPlanner,
   serializeDinnerPlanner,
   snapshotDinnerPlanner,
@@ -21,6 +22,7 @@ import type {
 } from "../index";
 
 const NOW = "2026-07-18T18:24:00.000Z";
+const REVISION = "4f1aa33d-7b62-47a4-935e-1d63833fd7c0";
 
 function seed(): DinnerPlannerPersistenceSeed {
   return {
@@ -57,6 +59,7 @@ describe("dinner planner persistence", () => {
       "nutrition",
       "recipes",
       "reviewStates",
+      "revision",
       "schedule",
       "scheduleRequest",
       "session",
@@ -74,6 +77,35 @@ describe("dinner planner persistence", () => {
     expect(snapshot).not.toHaveProperty("warnings");
     expect(snapshot.session).not.toHaveProperty("runtime");
     expect(JSON.stringify(snapshot)).not.toMatch(/codexSession|authToken|tempDir|secret/);
+  });
+
+  it("stores the caller revision with the planner snapshot", () => {
+    const snapshot = snapshotDinnerPlanner(cookingState(), REVISION);
+
+    expect(snapshot).toHaveProperty("revision", REVISION);
+  });
+
+  it("persists the same caller revision through the storage adapter", () => {
+    let stored: string | null = null;
+    const storage = {
+      getItem() { return stored; },
+      setItem(_key: string, value: string) { stored = value; },
+      removeItem() { stored = null; },
+    };
+    const persistence = createDinnerPlannerPersistence("dinnersync", () => storage);
+
+    persistence.save(cookingState(), REVISION);
+
+    expect(JSON.parse(stored!)).toHaveProperty("revision", REVISION);
+    expect(readDinnerPlannerRevision(stored)).toBe(REVISION);
+  });
+
+  it.each([
+    ["missing", serializeDinnerPlanner(cookingState())],
+    ["malformed", JSON.stringify({ revision: "not-a-revision" })],
+    ["oversized", `${serializeDinnerPlanner(cookingState())}${" ".repeat(4 * 1024 * 1024)}`],
+  ])("does not expose a %s planner revision", (_label, serialized) => {
+    expect(readDinnerPlannerRevision(serialized)).toBeNull();
   });
 
   it("recomputes plan data and replays session events on restore", () => {

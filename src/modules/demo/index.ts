@@ -12,3 +12,5 @@ export {
   createDemoScheduleRequest,
   runDemoDelayScenario,
 } from "./scenario";
+export { nextDemoCommand } from "./playback";
+export type { DemoPlaybackBeat } from "./playback";

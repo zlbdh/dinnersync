@@ -1,5 +1,6 @@
 import type {
   CookingSessionState,
+  SessionCommand,
   SessionSnapshotV1,
 } from "@/modules/cooking-session";
 import type { NutritionRecord, NutritionSummary } from "@/modules/nutrition";
@@ -72,6 +73,7 @@ export type DinnerPlannerState = {
 };
 
 export type DinnerPlannerAction =
+  | { type: "VALIDATED_STATE_RESTORED"; state: DinnerPlannerState }
   | {
     type: "REVIEW_CHANGED";
     recipeId: string;
@@ -80,6 +82,8 @@ export type DinnerPlannerAction =
   | { type: "SETTINGS_CHANGED"; settings: Partial<DinnerPlanSettings> }
   | { type: "PLAN_BUILT"; plan: DinnerPlan }
   | { type: "SESSION_STARTED"; session: CookingSessionState }
+  | { type: "SESSION_COMMAND"; command: SessionCommand }
+  | { type: "SESSION_TIME_ADVANCED"; now: IsoInstant }
   | { type: "STAGE_CHANGED"; stage: DinnerPlannerStage }
   | { type: "ERRORS_CHANGED"; errors: DinnerPlannerError[] }
   | { type: "STORAGE_WARNING"; warning: DinnerPlannerWarning }
@@ -87,6 +91,7 @@ export type DinnerPlannerAction =
 
 export type DinnerPlannerSnapshotV1 = {
   version: 1;
+  revision: string | null;
   stage: DinnerPlannerStage;
   settings: DinnerPlanSettings;
   reviewStates: RecipeReviewState[];
@@ -110,7 +115,7 @@ export type DinnerPlannerStorageLike = {
 };
 
 export type DinnerPlannerPersistence = {
-  save(state: DinnerPlannerState): DinnerPlannerState;
+  save(state: DinnerPlannerState, revision?: string | null): DinnerPlannerState;
   restore(
     seed: DinnerPlannerPersistenceSeed,
     now: IsoInstant,

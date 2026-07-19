@@ -8,7 +8,11 @@ import type {
 } from "@/modules/recipe-import";
 import { parseIsoInstant } from "@/shared";
 
-import type { DinnerPlanSettings } from "./types";
+import type { DinnerPlanSettings, DinnerPlannerState } from "./types";
+
+const MAX_PLANNER_REVIEW_STATES = 3;
+const MAX_PLANNER_SOURCE_CHARS = 24_000;
+const VALIDATED_RESTORE = Symbol("dinner-planner-validated-restore");
 
 const SETTINGS_KEYS = [
   "diners",
@@ -113,12 +117,15 @@ function validReviewState(value: unknown): value is RecipeReviewState {
 export function validRecipeReviewStates(
   value: unknown,
 ): value is RecipeReviewState[] {
-  if (!Array.isArray(value)) return false;
+  if (!Array.isArray(value) || value.length > MAX_PLANNER_REVIEW_STATES) return false;
   // Hydrated states must preserve identities used by review keys and flattened scheduling.
   const recipeIds = new Set<string>();
   const stepIds = new Set<string>();
+  let sourceChars = 0;
   for (const entry of value) {
     if (!validReviewState(entry) || recipeIds.has(entry.draft.id)) return false;
+    sourceChars += entry.draft.sourceText.length;
+    if (sourceChars > MAX_PLANNER_SOURCE_CHARS) return false;
     for (const step of entry.draft.steps) {
       if (stepIds.has(step.id)) return false;
       stepIds.add(step.id);
@@ -126,4 +133,58 @@ export function validRecipeReviewStates(
     recipeIds.add(entry.draft.id);
   }
   return true;
+}
+
+function sameJson(left: unknown, right: unknown) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function hasLinkedSession(state: DinnerPlannerState) {
+  return state.plan !== null
+    && state.plan.schedule.feasible
+    && state.session !== null
+    && sameJson(state.session.request, state.plan.scheduleRequest)
+    && sameJson(state.session.initialSchedule, state.plan.schedule);
+}
+
+function isReachableRestoredState(state: DinnerPlannerState) {
+  if (!validDinnerPlanSettings(state.settings)
+    || !validRecipeReviewStates(state.reviewStates)
+    || (state.stage !== "setup" && state.reviewStates.length === 0)) return false;
+  if (state.stage === "setup" || state.stage === "review") {
+    return state.plan === null && state.session === null;
+  }
+  if (state.stage === "plan") return state.plan !== null && state.session === null;
+  if (state.stage === "cook") return hasLinkedSession(state);
+  if (state.stage !== "summary" || !hasLinkedSession(state)) return false;
+  const runtime = Object.values(state.session!.runtime);
+  return runtime.length > 0
+    && runtime.every((task) => task.status === "completed");
+}
+
+export function markValidatedDinnerPlannerState<T extends DinnerPlannerState>(
+  state: T,
+): T {
+  // Bind the private marker to the exact state so post-validation mutations cannot cross
+  // the reducer boundary, while ordinary object spreads cannot propagate the marker.
+  Object.defineProperty(state, VALIDATED_RESTORE, {
+    value: JSON.stringify(state),
+    enumerable: false,
+  });
+  return state;
+}
+
+export function isValidatedDinnerPlannerState(
+  state: DinnerPlannerState,
+) {
+  const marked = state as DinnerPlannerState & {
+    [VALIDATED_RESTORE]?: string;
+  };
+  try {
+    if (typeof marked[VALIDATED_RESTORE] !== "string"
+      || marked[VALIDATED_RESTORE] !== JSON.stringify(state)) return false;
+    return isReachableRestoredState(state);
+  } catch {
+    return false;
+  }
 }

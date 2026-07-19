@@ -6,6 +6,9 @@ import type { ReactNode } from "react";
 
 import "./globals.css";
 import "./review.css";
+import "./plan.css";
+import "./cook.css";
+import "./summary.css";
 
 export const metadata: Metadata = {
   title: "DinnerSync — One finish line for dinner",
