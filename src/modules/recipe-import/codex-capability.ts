@@ -51,7 +51,7 @@ const CANARY_SCRIPT = [
   "const inside=process.argv[1],outside=process.argv[2],expected=process.argv[3];",
   "try{if(fs.readFileSync(inside,'utf8')!==expected)process.exit(40)}catch{process.exit(41)}",
   "try{fs.readFileSync(outside,'utf8');process.exit(42)}catch(error){",
-  "process.exit(error&&['EACCES','EPERM'].includes(error.code)?0:43)}",
+  "process.exit(error&&['EACCES','EPERM','ENOENT'].includes(error.code)?0:43)}",
 ].join("");
 
 export function createLocalAiCapabilityChecker(
@@ -72,6 +72,7 @@ async function runCapabilityProbe(
   const mkdtemp = dependencies.mkdtemp ?? nodeMkdtemp;
   const mkdir = dependencies.mkdir ?? nodeMkdir;
   const writeFile = dependencies.writeFile ?? nodeWriteFile;
+  const readFile = dependencies.readFile ?? nodeReadFile;
   const removeDirectory = dependencies.removeDirectory ?? nodeRm;
   const runCommand = dependencies.runCommand ?? defaultRunCommand;
   let baseDirectory: string | undefined;
@@ -86,9 +87,10 @@ async function runCapabilityProbe(
       ?? join(
         /*turbopackIgnore: true*/ process.cwd(), "public", "dinnersync-sandbox-canary.txt",
       );
-    const outsideCanaryText = dependencies.readFile
-      ? await dependencies.readFile(outsideCanary, "utf8")
-      : await nodeReadFile(/*turbopackIgnore: true*/ outsideCanary, "utf8");
+    const outsideCanaryText = await readFile(
+      /*turbopackIgnore: true*/ outsideCanary,
+      "utf8",
+    );
     if (outsideCanaryText.replaceAll("\r\n", "\n") !== OUTSIDE_CANARY_TEXT) {
       throw new Error("CANARY_MISMATCH");
     }
@@ -107,7 +109,13 @@ async function runCapabilityProbe(
       ...process.env,
       CODEX_HOME: codexHome,
     });
-    passed = result.exitCode === 0;
+    if (result.exitCode === 0) {
+      const textAfterProbe = await readFile(
+        /*turbopackIgnore: true*/ outsideCanary,
+        "utf8",
+      );
+      passed = textAfterProbe.replaceAll("\r\n", "\n") === OUTSIDE_CANARY_TEXT;
+    }
   } catch {
     passed = false;
   }

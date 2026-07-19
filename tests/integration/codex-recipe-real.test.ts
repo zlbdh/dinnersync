@@ -218,8 +218,8 @@ describe("RecipeDraft Codex business gate", () => {
         timeoutMs: 120_000,
       });
       expect(model).toBe(process.env.DINNERSYNC_CODEX_MODEL);
-      expect(result.ok).toBe(true);
       if (!result.ok) throw new Error(`Real Codex gate failed safely: ${result.error.code}`);
+      expect(result.ok).toBe(true);
       expect(result.value).toMatchObject({
         provider: "openai-codex-cli",
         model,

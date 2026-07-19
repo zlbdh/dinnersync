@@ -83,8 +83,8 @@ function applyReplan(state: CookingSessionState, at: string) {
   const warning = result.feasible ? null : {
     code: "SCHEDULE_INFEASIBLE" as const,
     message: result.earliestFeasible
-      ? "原定开饭时间不可行，已采用最早安全时间线。"
-      : "当前锁定步骤使剩余排程暂时不可行。",
+      ? "The original dinner time is no longer feasible. DinnerSync is using the earliest safe timeline."
+      : "Locked work makes the remaining schedule temporarily infeasible.",
   };
   const warnings = warning && !state.warnings.some((entry) =>
     entry.code === warning.code && entry.message === warning.message)

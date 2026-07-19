@@ -1,7 +1,7 @@
 # Codex CLI 能力核验
 
-核验时间：2026-07-18（Asia/Shanghai）
-核验环境：Windows x64、Node.js 22.20.0、Codex CLI 0.144.4
+核验时间：2026-07-18 至 2026-07-19（Asia/Shanghai）
+核验环境：Windows x64 / WSL Ubuntu 24.04、Node.js 22.20.0 / 22.22、Codex CLI 0.144.4
 
 ## 只读发现
 
@@ -46,6 +46,22 @@ npm run test:codex-sandbox -> FAIL: SANDBOX_UNAVAILABLE（exit 1）
 全部 `--disable`（含 `shell_snapshot`）和 `--strict-config` 均成功解析并到达本地
 `/v1/responses`。该检查只证明参数可解析，不能替代 OS canary，也不会正向放行。
 
+## 2026-07-19 WSL/Linux 实机门禁
+
+后续实机复核发现，filesystem 权限中 `:root`、`:minimal` 和 `:workspace_roots` 不能拆成
+多个带冒号的 dotted CLI 参数；正确形式是把整个 filesystem 作为一张 inline table
+传入。修正后，在 WSL Ubuntu 24.04 中使用相同 Codex CLI 0.144.4 运行 OS canary，临时
+工作目录内文件可读、目录外 canary 被 sandbox 隐藏，命令真实退出 0。
+
+Linux sandbox 可能以 `ENOENT` 表示目录外文件不可见。runner 因此接受 `ENOENT`、
+`EACCES` 或 `EPERM`，但随后会在 sandbox 外再次读取固定 canary，验证文件仍存在且内容
+未变，避免把删除或损坏误判为隔离成功。
+
+只有上述 canary 通过后，才真实调用精确模型 `gpt-5.6-terra`。2026-07-19 11:08
+（Asia/Shanghai）的 RecipeDraft 导入通过严格 JSON Schema、Zod、批次身份与 UTF-16
+source-evidence 校验并进入 Review。`gpt-5.6-sol` 仍只有历史 structured-output smoke
+记录，本文不把它表述为 RecipeDraft 业务门禁 PASS。
+
 ## 精确模型能力门禁
 
 以下历史记录使用全新临时目录、旧 `read-only` sandbox、ephemeral 会话以及
@@ -84,8 +100,8 @@ $env:DINNERSYNC_CODEX_MODEL='gpt-5.6-sol'; npm run smoke:codex        -> PASS: g
 
 - runner 的 cwd 是项目外新建的临时目录；schema 与最终结果都只存在于该目录，且
   `finally` 清理。
-- 模型进程仅在无模型 OS canary 通过后才可启动；当前 Windows 实测不通过，因此
-  fail closed。named profile 不能仅凭配置解析成功或 prompt 声明视为安全。
+- 模型进程仅在无模型 OS canary 通过后才可启动；原生 Windows 实测不通过并 fail
+  closed，WSL/Linux 实测通过。named profile 不能仅凭配置解析成功或 prompt 声明视为安全。
 - 执行参数忽略用户配置与 rules，采用 ephemeral 会话；prompt 只走 stdin，不进入命令
   参数。`shell_environment_policy.inherit="none"`、权限配置和工具禁用项经
   `--strict-config` 传入；`shell_snapshot` 也被显式禁用。
@@ -99,7 +115,7 @@ $env:DINNERSYNC_CODEX_MODEL='gpt-5.6-sol'; npm run smoke:codex        -> PASS: g
   宽限期。只有直接 child 已 close 且树级动作成功，才会标记 `terminationConfirmed: true`；
   树动作失败、超时或无法确认时保留首个错误码，并明确标记 `terminationConfirmed: false`。
 - 错误不回传 prompt、原始 stderr、认证信息或本地路径；清理失败只附加脱敏诊断。
-- CLI 或 Windows sandbox 后续升级时，必须先重新执行无模型 canary；不得直接重跑真实
+- CLI 或 OS sandbox 后续升级时，必须先重新执行无模型 canary；不得直接重跑真实
   模型或沿用历史 PASS。
-- 这里只验证 CLI 登录、精确模型和 structured output。RecipeDraft/EvidenceSpan 的真实
-  业务门禁属于后续任务，不能由本 smoke 代替。
+- 历史 smoke 只验证 CLI 登录、精确模型和 structured output；当前 Terra
+  RecipeDraft/EvidenceSpan PASS 另有独立的真实业务门禁记录，二者不能互相替代。

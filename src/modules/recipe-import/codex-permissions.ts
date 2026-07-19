@@ -1,9 +1,7 @@
 export const LOCAL_AI_PERMISSION_PROFILE = "dinnersync-local-ai";
 
 const PROFILE_CONFIG = [
-  `permissions.${LOCAL_AI_PERMISSION_PROFILE}.filesystem.:root="deny"`,
-  `permissions.${LOCAL_AI_PERMISSION_PROFILE}.filesystem.:minimal="read"`,
-  `permissions.${LOCAL_AI_PERMISSION_PROFILE}.filesystem.:workspace_roots={ "." = "read" }`,
+  `permissions.${LOCAL_AI_PERMISSION_PROFILE}.filesystem={ ":root" = "deny", ":minimal" = "read", ":workspace_roots" = { "." = "read" } }`,
   `permissions.${LOCAL_AI_PERMISSION_PROFILE}.network.enabled=false`,
 ] as const;
 

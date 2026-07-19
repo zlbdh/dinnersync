@@ -52,9 +52,7 @@ describe("Codex local-AI permission profile", () => {
     expect(LOCAL_AI_PERMISSION_PROFILE).toBe("dinnersync-local-ai");
     expect(permissionConfigArguments()).toEqual([
       "--config", 'default_permissions="dinnersync-local-ai"',
-      "--config", 'permissions.dinnersync-local-ai.filesystem.:root="deny"',
-      "--config", 'permissions.dinnersync-local-ai.filesystem.:minimal="read"',
-      "--config", 'permissions.dinnersync-local-ai.filesystem.:workspace_roots={ "." = "read" }',
+      "--config", 'permissions.dinnersync-local-ai.filesystem={ ":root" = "deny", ":minimal" = "read", ":workspace_roots" = { "." = "read" } }',
       "--config", "permissions.dinnersync-local-ai.network.enabled=false",
       "--config", 'shell_environment_policy.inherit="none"',
       "--config", 'approval_policy="never"',

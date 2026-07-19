@@ -1,43 +1,63 @@
 # Local AI 业务门禁状态
 
-核验日期：2026-07-18（Asia/Shanghai）
+核验时间：2026-07-19 11:08（Asia/Shanghai）
 
-## 已真实通过的基础能力
+## 当前结论
 
-Task 2 在提交 `355078c` 之前，已分别使用精确模型 ID `gpt-5.6-terra` 与
-`gpt-5.6-sol` 真实执行严格 `{ "ok": true }` structured-output 门禁；两次均退出码
-0，且结果符合 `additionalProperties: false` schema。该记录只证明 Codex CLI、精确
-模型选择和 structured output 可用，不等同于 RecipeDraft 业务门禁通过。
+DinnerSync 的真实 Local AI RecipeDraft 门禁已在 WSL/Linux 环境通过。核验环境为
+Ubuntu 24.04（WSL）、Node.js 22.22、Codex CLI 0.144.4，并复用用户已登录的 ChatGPT
+Codex 会话。执行顺序严格保持为：
 
-上述历史运行使用的 `read-only` sandbox 后来被证实不能阻止读取宿主文件，因此也不等同
-于当前安全门禁通过。当前 runner 会在模型启动前执行无模型 OS canary；本机 Windows
-sandbox 无法拒绝目录外的无敏感 canary，故 `npm run test:codex-sandbox` 稳定返回
-`SANDBOX_UNAVAILABLE` 和非零退出。status/import 会明确返回同一稳定码，不能绕过。
+1. 先运行不调用模型的 OS sandbox canary；
+2. canary 退出 0 后，才允许调用精确模型 `gpt-5.6-terra`；
+3. 真实 RecipeDraft 返回后，再执行 JSON Schema、Zod、批次身份与 UTF-16 source evidence
+   校验。
 
-## RecipeDraft 业务门禁当前阻塞
+本次真实导入用时约 57 秒，最终进入 Review，返回元数据显示
+`provider: openai-codex-cli`、`model: gpt-5.6-terra`，并显示 schema 与 source evidence
+均已检查。所有模型字段仍保持 `needs-review`；该 PASS 不代表模型内容由系统自动确认。
 
-本账户额度当前耗尽，外部服务返回 `usage limit reached`，预计恢复时间为
-2026-07-25 12:02；该时间晚于本次比赛截止时间。因此本任务没有再次调用或重试真实
-模型，也没有把跳过的消费型测试记录成 PASS。
-
-`tests/integration/codex-recipe-real.test.ts` 已通过 fake runner 测试证明以下接线：精确
-允许列表模型原样传递、严格 AI JSON Schema、RecipeDraft/Zod + 根 UTF-16 evidence
-validator、原始英文菜谱 prompt、有界超时与输出上限。普通 `npm test` 会明确把真实用例
-列为 skipped；fake 接线通过不代表真实业务门禁通过。
-
-## 隔离修复且额度恢复后的补跑命令
-
-必须先运行 `npm run test:codex-sandbox` 并取得真实 exit 0。当前结果为 exit 1 时，禁止
-调用真实模型；历史 structured-output PASS 不能替代此门禁。
-
-在已登录 Codex CLI 的本机 PowerShell 中显式选择一个经过核验的模型，再运行：
-
-```powershell
-$env:DINNERSYNC_CODEX_MODEL='gpt-5.6-terra'
-npm run test:codex-real
+```text
+npm run test:codex-sandbox                         -> PASS（WSL/Linux，真实 exit 0）
+DINNERSYNC_CODEX_MODEL=gpt-5.6-terra npm run test:codex-real
+                                                   -> PASS（真实 RecipeDraft 门禁）
 ```
 
-也可把精确模型改为 `gpt-5.6-sol`。`test:codex-real` 会显式设置
-`RUN_REAL_CODEX=1`；此时真实用例绝不 skip，缺少/错误模型、额度限制、schema/evidence
-不合规、超时或 runner 失败都会令命令非零退出。只有命令真实退出 0，才可在本文新增
-“RecipeDraft 业务门禁 PASS”记录。
+没有把默认 `npm test` 中被跳过的消费型测试当作真实 PASS，也没有声称
+`gpt-5.6-sol` 已通过 RecipeDraft 业务门禁。
+
+## 与历史 smoke 的区别
+
+Task 2 曾分别使用精确模型 ID `gpt-5.6-terra` 与 `gpt-5.6-sol` 运行严格
+`{ "ok": true }` structured-output smoke；两次均退出 0。该历史记录只证明当时的模型
+选择与 structured output 可用。旧运行使用的 `read-only` sandbox 不能阻止读取宿主文件，
+因此不能替代当前 OS canary，也不能替代 RecipeDraft、evidence 与批次身份门禁。
+
+## 平台差异与 fail-closed 行为
+
+同一台机器的原生 Windows elevated sandbox 仍无法拒绝目录外的无敏感 canary，故原生
+Windows 路径稳定返回 `SANDBOX_UNAVAILABLE` 并在模型启动前停止。WSL/Linux 的真实
+sandbox 能隐藏目录外 canary；Linux 可能以 `ENOENT` 表达这种隐藏，而不是只返回
+`EACCES`/`EPERM`。runner 接受这三种拒绝表现，并在 sandbox 结束后从宿主侧再次读取
+canary，确认它仍存在且内容未被修改。
+
+专用 filesystem 权限必须以一张 inline table 传给 Codex CLI；把带冒号的 key 拆成
+多个 dotted CLI 参数会触发 `FilesystemPermissionToml` 解析失败。当前实现同时保持根目录
+拒绝、最小运行时只读、临时工作区只读和网络禁用。
+
+## 复跑命令
+
+任何新环境都必须先通过无模型 canary：
+
+```bash
+npm run test:codex-sandbox
+```
+
+只有它真实退出 0 后，才可显式选择模型并运行消费额度的业务门禁：
+
+```bash
+DINNERSYNC_CODEX_MODEL=gpt-5.6-terra npm run test:codex-real
+```
+
+`test:codex-real` 会设置 `RUN_REAL_CODEX=1`；缺少或错误模型、额度限制、schema/evidence
+不合规、超时、输出超限或 runner 失败都会令命令非零退出。任何 canary 失败都禁止绕过。

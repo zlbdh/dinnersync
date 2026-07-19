@@ -122,7 +122,7 @@ describe("CodexRunner", () => {
     expect(call.args).toEqual(expect.arrayContaining([
       "--ephemeral", "--ignore-user-config", "--ignore-rules",
       "--config", 'default_permissions="dinnersync-local-ai"',
-      "--config", 'permissions.dinnersync-local-ai.filesystem.:root="deny"',
+      "--config", 'permissions.dinnersync-local-ai.filesystem={ ":root" = "deny", ":minimal" = "read", ":workspace_roots" = { "." = "read" } }',
       "--config", 'permissions.dinnersync-local-ai.network.enabled=false',
       "--config", 'shell_environment_policy.inherit="none"',
       "--config", 'approval_policy="never"', "--strict-config",

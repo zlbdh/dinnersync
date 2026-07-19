@@ -46,6 +46,27 @@ describe("buildCodexImportPrompt", () => {
     expect(built.prompt).toMatch(/step ids?.*unique across the entire batch/i);
   });
 
+  it("requires every nested sourceText to repeat the complete matching recipe", () => {
+    const built = buildCodexImportPrompt(["Recipe one"]);
+
+    expect(built.prompt).toMatch(/ingredient\.sourceText/i);
+    expect(built.prompt).toMatch(/step\.sourceText/i);
+    expect(built.prompt).toMatch(/complete.*input recipe.*verbatim/i);
+    expect(built.prompt).toMatch(/never.*excerpt/i);
+    expect(built.prompt).toMatch(/end.*start.*evidence\.text\.length/i);
+    expect(built.prompt).toMatch(/uncertain.*inferred.*null evidence/i);
+    expect(built.prompt).toMatch(/human-readable.*English/i);
+  });
+
+  it("keeps non-English source text verbatim while limiting English to generated values", () => {
+    const recipe = "番茄切片，烤 8 分钟。";
+    const built = buildCodexImportPrompt([recipe]);
+
+    expect(built.prompt).toContain(JSON.stringify({ recipes: [recipe] }));
+    expect(built.prompt).toMatch(/generated human-readable values.*English/i);
+    expect(built.prompt).toMatch(/excluding sourceText and evidence\.text.*verbatim/i);
+  });
+
   it("accepts at most three non-blank recipes within per-item and total bounds", () => {
     expect(MAX_RECIPE_COUNT).toBe(3);
     expect(() => buildCodexImportPrompt([])).toThrow(/recipe/i);

@@ -67,6 +67,10 @@ describe("cooking session commands", () => {
       type: "TASK_DUE",
       at: "2026-07-18T18:05:00.000Z",
     });
+    expect(delayed.warnings).toContainEqual({
+      code: "SCHEDULE_INFEASIBLE",
+      message: "The original dinner time is no longer feasible. DinnerSync is using the earliest safe timeline.",
+    });
   });
 
   it("moves due back to running on delay and permits a later due event", () => {

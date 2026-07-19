@@ -51,6 +51,8 @@ describe("local AI OS capability gate", () => {
     expect(JSON.stringify(args)).not.toMatch(/\bexec\b|--model|gpt-/i);
     expect(environment.CODEX_HOME).toContain("dinnersync-gate-abc");
     expect(fixture.writeFile).toHaveBeenCalledOnce();
+    expect(fixture.readFile).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(args)).toContain("ENOENT");
     expect(fixture.removeDirectory).toHaveBeenCalledOnce();
   });
 
@@ -84,5 +86,17 @@ describe("local AI OS capability gate", () => {
       error: { code: "SANDBOX_UNAVAILABLE" },
     });
     expect(fixture.runCommand).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a sandbox-hidden canary is not still present afterward", async () => {
+    const fixture = setup(0);
+    fixture.readFile
+      .mockResolvedValueOnce("DinnerSync harmless outside sandbox canary v1\n")
+      .mockRejectedValueOnce(new Error("missing after probe"));
+
+    await expect(fixture.check()).resolves.toMatchObject({
+      ok: false,
+      error: { code: "SANDBOX_UNAVAILABLE" },
+    });
   });
 });
