@@ -1,0 +1,164 @@
+{
+  "version": 1,
+  "title": "DinnerSync — OpenAI Build Week demo",
+  "language": "en",
+  "recordingStatus": "recorded",
+  "totalSeconds": 168,
+  "durationPolicy": {
+    "minimumSeconds": 150,
+    "maximumSeconds": 170,
+    "hardMaximumSecondsExclusive": 180
+  },
+  "claims": {
+    "hostedModelRequests": 0,
+    "localModel": "gpt-5.6-terra",
+    "speedMultiplier": 60,
+    "delayMinutes": 8
+  },
+  "truthPolicy": {
+    "hosted": "Use only the pre-reviewed fixture. Hosted makes no model request and sends no recipe data.",
+    "local": "Use a real local recording with explicit consent and visible gpt-5.6-terra metadata; never substitute fixture footage."
+  },
+  "shots": [
+    {
+      "id": "problem",
+      "startSecond": 0,
+      "endSecond": 12,
+      "source": "editorial",
+      "screen": "Open on the DinnerSync wordmark, then reveal three recipe cards beside one crowded kitchen timeline.",
+      "action": "Animate the three recipes converging on a single serve marker.",
+      "narration": "Cooking three dishes is not three timers. One oven, two burners, shared hands, and a fixed dinner time create a dependency problem that ordinary recipe apps ignore.",
+      "captions": ["Three recipes. One kitchen. One finish line."]
+    },
+    {
+      "id": "hosted-no-model",
+      "startSecond": 12,
+      "endSecond": 21,
+      "source": "hosted-fixture",
+      "screen": "Show the Hosted Demo mode card and its privacy copy before touching the sample button.",
+      "action": "Hold long enough for the Hosted privacy boundary to be readable.",
+      "narration": "First, the public Hosted Demo loads a pre-reviewed fixture in the browser. It makes zero model requests and sends no recipe data.",
+      "captions": ["Hosted Demo · pre-reviewed fixture · 0 model requests"]
+    },
+    {
+      "id": "hosted-setup",
+      "startSecond": 21,
+      "endSecond": 32,
+      "source": "hosted-fixture",
+      "screen": "Click Try the 650 kcal demo and follow the real transition directly into the pre-reviewed Review screen.",
+      "action": "Hold on the built-in reviewed fixture notice and the three-recipe decision ledger; do not imply that Setup remains visible after the click.",
+      "narration": "One click opens a pre-reviewed chicken, rice, and vegetable dinner for four, targeting 7 PM and an estimated 650 kilocalories per person.",
+      "captions": ["4 diners · 7:00 PM · 650 kcal target (estimate)"]
+    },
+    {
+      "id": "local-ai-consent",
+      "startSecond": 32,
+      "endSecond": 41,
+      "source": "local-real",
+      "screen": "Cut to a real localhost session, select Local AI, and show the OpenAI data notice and unchecked consent control.",
+      "action": "Paste the prepared recipe text, then click the consent checkbox on camera before submitting.",
+      "narration": "Now the real Local AI path. I paste recipe text, select Local AI, and consent before anything is sent to OpenAI.",
+      "captions": ["Local AI · explicit consent required"]
+    },
+    {
+      "id": "local-ai-gpt56",
+      "startSecond": 41,
+      "endSecond": 53,
+      "source": "local-real",
+      "screen": "Keep the real Local AI result visible with the exact gpt-5.6-terra model badge and schema and evidence validation indicators.",
+      "action": "Trim waiting time only; never replace this segment with Hosted fixture footage.",
+      "narration": "This is genuine Local AI, not fixture footage. Logged-in Codex runs gpt-5.6-terra, returns typed candidates, and the app validates schema and source evidence.",
+      "captions": ["Real Local AI · gpt-5.6-terra · schema + evidence validated"]
+    },
+    {
+      "id": "review",
+      "startSecond": 53,
+      "endSecond": 68,
+      "source": "hosted-fixture",
+      "screen": "Return to the repeatable Hosted path and scroll through servings, ingredients, food states, steps, temperatures, and evidence excerpts.",
+      "action": "Pause on one source-evidence highlight and the completed decision ledger. The Hosted fixture is already reviewed; do not stage confirmation clicks.",
+      "narration": "The Hosted fixture is pre-reviewed, so judges can inspect ingredients, steps, temperatures, nutrition matches, and source evidence without staged confirmations. Local AI stays locked until human approval.",
+      "captions": ["Hosted fixture · pre-reviewed decisions · evidence visible"]
+    },
+    {
+      "id": "nutrition",
+      "startSecond": 68,
+      "endSecond": 79,
+      "source": "hosted-fixture",
+      "screen": "Show the traceable nutrition matches, catalog source, meal total, and per-person estimate.",
+      "action": "Pause on the estimate and safety copy without presenting it as a health guarantee.",
+      "narration": "Nutrition is separate deterministic math over traceable catalog records. DinnerSync shows each match and the estimated kcal per person; it is not medical advice.",
+      "captions": ["Estimated kcal · traceable catalog · not medical advice"]
+    },
+    {
+      "id": "timeline",
+      "startSecond": 79,
+      "endSecond": 96,
+      "source": "hosted-fixture",
+      "screen": "Click Build the service timeline and pan across the dish tracks, shared-resource labels, dependencies, and serve marker.",
+      "action": "Use cursor callouts to connect overlapping work to oven, burner, and hands constraints.",
+      "narration": "After review, the scheduler builds one resource-feasible timeline. These tracks expose dependencies and conflicts across oven, burners, and hands, while the common serve marker keeps all three dishes inside the five-minute window.",
+      "captions": ["Deterministic scheduler · dependencies + shared resources"]
+    },
+    {
+      "id": "cook-start",
+      "startSecond": 96,
+      "endSecond": 105,
+      "source": "hosted-fixture",
+      "screen": "Click Start cooking and show the live task cards with their Start, Complete, and Delay controls.",
+      "action": "Point to the replay status text that says normal dispatcher semantics are retained.",
+      "narration": "I start cooking from the validated plan. Every Start, Complete, and Delay is an explicit event against the same session state.",
+      "captions": ["One event dispatcher for live and replay"]
+    },
+    {
+      "id": "cook-60x",
+      "startSecond": 105,
+      "endSecond": 119,
+      "source": "hosted-fixture",
+      "screen": "Click 60× replay and keep the advancing clock, active task, and event status visible together.",
+      "action": "Speed-ramp only the screen capture; do not reorder or synthesize events in the edit.",
+      "narration": "For a short judging demo, 60-times playback compresses waiting only. It does not change task order or invent outcomes; replay uses that same normal event dispatcher.",
+      "captions": ["60× playback · speed changes, logic does not"]
+    },
+    {
+      "id": "delay-replan",
+      "startSecond": 119,
+      "endSecond": 135,
+      "source": "hosted-fixture",
+      "screen": "Keep the chicken roast visible as the +8 minute event lands, then show pending task times and the serve forecast move.",
+      "action": "Freeze-frame the delay record and the replanned 7:08 PM finish marker for one beat.",
+      "narration": "During the chicken roast, the scenario records a real plus-eight-minute Delay event. DinnerSync replans only work that has not started, preserves completed facts, and moves the feasible finish to 7:08.",
+      "captions": ["+8 min roast delay · deterministic replan"]
+    },
+    {
+      "id": "summary",
+      "startSecond": 135,
+      "endSecond": 149,
+      "source": "hosted-fixture",
+      "screen": "Land on Summary with planned and actual completion, run record, nutrition totals, and the next-service note visible.",
+      "action": "Highlight 7:00 PM, 7:08 PM, 8 min late, one recorded delay, and the critical-path note in sequence.",
+      "narration": "Summary compares the 7:00 planned finish with the recorded 7:08 completion, one delay, eight delay minutes, and the actual replan passes. Its next-service note comes only from critical-path evidence.",
+      "captions": ["Planned 7:00 PM · actual 7:08 PM · 8 min late"]
+    },
+    {
+      "id": "technical-split",
+      "startSecond": 149,
+      "endSecond": 159,
+      "source": "architecture",
+      "screen": "Show a two-column architecture card labeled AI candidate extraction and Deterministic application core.",
+      "action": "Reveal the Codex boundary first, then the validation, nutrition, scheduler, session, persistence, and Summary modules.",
+      "narration": "GPT-5.6 structures candidates. Deterministic TypeScript owns review, nutrition, scheduling, replay, replanning, and Summary.",
+      "captions": ["AI: candidate extraction · Code: validation, math, schedule, state"]
+    },
+    {
+      "id": "safety-boundaries",
+      "startSecond": 159,
+      "endSecond": 168,
+      "source": "architecture",
+      "screen": "End on the product mark with three concise boundary cards for Hosted, Local AI, and human decisions.",
+      "action": "Hold the final frame for one second with the project name and Apps for Your Life track.",
+      "narration": "Hosted has no Local AI route. Local use requires loopback, consent, validation, and human judgment for allergens and food safety.",
+      "captions": ["No hosted model route · local consent · validated boundaries"]
+    }
+  ]
+}

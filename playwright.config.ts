@@ -1,7 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const port = Number(process.env.PLAYWRIGHT_PORT ?? 3_200);
-const baseURL = `http://127.0.0.1:${port}`;
+import { resolvePlaywrightTarget } from "./scripts/playwright-target";
+
+const target = resolvePlaywrightTarget();
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -13,7 +14,7 @@ export default defineConfig({
   outputDir: "test-results/e2e",
   expect: { timeout: 10_000 },
   use: {
-    baseURL,
+    baseURL: target.baseURL,
     locale: "en-US",
     timezoneId: "UTC",
     colorScheme: "light",
@@ -28,9 +29,9 @@ export default defineConfig({
       viewport: { width: 1_440, height: 900 },
     },
   }],
-  webServer: {
-    command: `npm run dev -- --hostname 127.0.0.1 --port ${port}`,
-    url: baseURL,
+  webServer: target.external ? undefined : {
+    command: `npm run dev -- --hostname 127.0.0.1 --port ${target.port}`,
+    url: target.baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

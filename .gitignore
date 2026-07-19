@@ -4,7 +4,10 @@ node_modules/
 out/
 coverage/
 playwright-report/
+.playwright-cli/
 test-results/
+/artifacts/demo/*.mp4
+/.verification/
 *.tsbuildinfo
 .env*
 !.env.example

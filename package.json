@@ -20,6 +20,8 @@
     "test:codex-sandbox": "tsx scripts/codex-sandbox-gate.mjs",
     "test:e2e": "playwright test",
     "smoke:codex": "tsx scripts/codex-smoke.mjs",
+    "validate:demo": "node scripts/validate-demo.mjs --plan",
+    "validate:demo:final": "node scripts/validate-demo.mjs --final",
     "check:files": "node scripts/check-file-lengths.mjs",
     "verify": "npm run check:files && npm run lint && npm run typecheck && npm run test && npm run build"
   },
