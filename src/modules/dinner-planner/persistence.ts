@@ -41,12 +41,12 @@ const REVISION_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3
 const STORAGE_WARNING: DinnerPlannerWarning = {
   category: "storage",
   code: "STORAGE_UNAVAILABLE",
-  message: "浏览器存储不可用，本次规划已降级为内存保存。",
+  message: "Browser storage is unavailable. This plan is stored in memory only.",
 };
 const RECOVERY_WARNING: DinnerPlannerWarning = {
   category: "storage",
   code: "SNAPSHOT_RECOVERED",
-  message: "规划数据无效，已安全重置。",
+  message: "Invalid planning data was safely reset.",
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {

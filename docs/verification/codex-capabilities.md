@@ -1,11 +1,11 @@
-# Codex CLI 能力核验
+# Codex CLI Capability Verification
 
-核验时间：2026-07-18 至 2026-07-19（Asia/Shanghai）
-核验环境：Windows x64 / WSL Ubuntu 24.04、Node.js 22.20.0 / 22.22、Codex CLI 0.144.4
+Verification period: July 18–19, 2026 (Asia/Shanghai)
+Environment: Windows x64 / WSL Ubuntu 24.04, Node.js 22.20.0 / 22.22, Codex CLI 0.144.4
 
-## 只读发现
+## Read-only discovery
 
-执行了以下命令，输出只记录非敏感结论：
+The following commands were run, recording only nonsensitive conclusions:
 
 ```text
 codex --version       -> codex-cli 0.144.4
@@ -13,109 +13,109 @@ codex login status    -> Logged in using ChatGPT
 codex exec --help     -> exit 0
 ```
 
-当前 `exec --help` 明确列出了本项目所需参数：`--model`、`--ephemeral`、
+The current `exec --help` explicitly lists the required flags: `--model`, `--ephemeral`,
 `--ignore-user-config`、`--ignore-rules`、
 `--strict-config`、`--config`、`--output-schema`、`--output-last-message`、
-`--skip-git-repo-check` 与 `--cd`。Prompt 可通过 stdin 的 `-` 传入。
+`--skip-git-repo-check`, and `--cd`. Prompts can be passed through stdin with `-`.
 
-## 2026-07-18 安全复核更新
+## July 18, 2026 security review update
 
-后续安全复核确认，旧的 `--sandbox read-only` 只限制写入，不能阻止模型读取宿主文件，
-因此旧 smoke 不能证明 Local AI 具备安全文件隔离，runner 已不再使用该模式。
+A subsequent security review confirmed that the old `--sandbox read-only` restricts writes but does not prevent reading host files.
+The old smoke test therefore does not prove safe Local AI file isolation, and the runner no longer uses that mode.
 
-当前实现改用专用 named permission profile：根目录拒绝、仅最小运行时与临时工作目录可读、
-网络禁用，并显式禁用 shell、shell snapshot、unified exec、browser、apps、plugins、
-computer use 与 workspace dependencies 等工具族。runner 在任何模型进程启动前，必须先用
-同一 profile 执行无模型 canary：临时工作目录内的无敏感文件必须可读，目录外的无敏感
-canary 必须被 OS 拒绝。
-该专用 canary 位于 `public/dinnersync-sandbox-canary.txt`，只含固定无敏感文本；部署时
-必须随 `public` 一起复制。文件缺失或内容不符同样 fail closed。
+The implementation now uses a dedicated named permission profile: deny the root filesystem, allow reads only of the minimal runtime and temporary workspace,
+disable networking, and explicitly disable shell, shell snapshots, unified exec, browser, apps, plugins,
+computer use, and workspace dependencies. Before starting any model process, the runner must execute
+a model-free canary under the same profile: nonsensitive files inside the temporary workspace must be readable,
+while the operating system must deny access to the nonsensitive canary outside it.
+The dedicated canary at `public/dinnersync-sandbox-canary.txt` contains only fixed nonsensitive text and must be
+copied with `public` during deployment. Missing files or unexpected contents also fail closed.
 
-本机 Codex CLI 0.144.4 的 Windows elevated sandbox 仍能读取目录外 canary，故能力门禁
-正确失败：
+On this machine, the Codex CLI 0.144.4 Windows elevated sandbox could still read the external canary, so the capability gate
+correctly failed:
 
 ```text
 npm run test:codex-sandbox -> FAIL: SANDBOX_UNAVAILABLE（exit 1）
 ```
 
-这不是测试误报，也不能绕过。status 与 import 都返回稳定的 `SANDBOX_UNAVAILABLE`，
-真实解析在调用模型前停止。只有 CLI/OS 更新后该 canary 真实退出 0，才允许重新执行消费
-额度的模型门禁。
+This is not a false positive and must not be bypassed. Both status and import return stable `SANDBOX_UNAVAILABLE`,
+stopping real parsing before any model call. A quota-consuming model gate may run again only after a CLI/OS update
+makes the real canary exit with code 0.
 
-完整 `codex exec` argv 另以本机 mock provider 做了无额度解析检查：permission 配置、
-全部 `--disable`（含 `shell_snapshot`）和 `--strict-config` 均成功解析并到达本地
-`/v1/responses`。该检查只证明参数可解析，不能替代 OS canary，也不会正向放行。
+The complete `codex exec` argument list was also checked without quota consumption using a local mock provider. Permission configuration,
+all `--disable` flags (including `shell_snapshot`), and `--strict-config` parsed successfully and reached the local
+`/v1/responses` endpoint. This proves only argument parsing, not OS isolation, and does not authorize execution.
 
-## 2026-07-19 WSL/Linux 实机门禁
+## July 19, 2026 WSL/Linux gate
 
-后续实机复核发现，filesystem 权限中 `:root`、`:minimal` 和 `:workspace_roots` 不能拆成
-多个带冒号的 dotted CLI 参数；正确形式是把整个 filesystem 作为一张 inline table
-传入。修正后，在 WSL Ubuntu 24.04 中使用相同 Codex CLI 0.144.4 运行 OS canary，临时
-工作目录内文件可读、目录外 canary 被 sandbox 隐藏，命令真实退出 0。
+Subsequent testing found that filesystem permission keys `:root`, `:minimal`, and `:workspace_roots` cannot be split into
+separate colon-containing dotted CLI arguments. The entire filesystem configuration must be passed as one inline table.
+With that correction, the OS canary ran under the same Codex CLI 0.144.4 on WSL Ubuntu 24.04. Files inside the temporary
+workspace were readable, the sandbox hid the external canary, and the actual command exited with code 0.
 
-Linux sandbox 可能以 `ENOENT` 表示目录外文件不可见。runner 因此接受 `ENOENT`、
-`EACCES` 或 `EPERM`，但随后会在 sandbox 外再次读取固定 canary，验证文件仍存在且内容
-未变，避免把删除或损坏误判为隔离成功。
+Linux sandboxing may report `ENOENT` for hidden external files. The runner therefore accepts `ENOENT`,
+`EACCES`, or `EPERM`, then rereads the fixed canary outside the sandbox to verify that it still exists and its contents
+are unchanged, preventing deletion or corruption from being mistaken for successful isolation.
 
-只有上述 canary 通过后，才真实调用精确模型 `gpt-5.6-terra`。2026-07-19 11:08
-（Asia/Shanghai）的 RecipeDraft 导入通过严格 JSON Schema、Zod、批次身份与 UTF-16
-source-evidence 校验并进入 Review。`gpt-5.6-sol` 仍只有历史 structured-output smoke
-记录，本文不把它表述为 RecipeDraft 业务门禁 PASS。
+Only after that canary passed did the runner call the exact model `gpt-5.6-terra`. On July 19, 2026 at 11:08
+(Asia/Shanghai), RecipeDraft import passed strict JSON Schema, Zod, batch identity, and UTF-16
+source-evidence validation and entered Review. `gpt-5.6-sol` still has only historical structured-output smoke
+evidence; this document does not claim that it passed the RecipeDraft business gate.
 
-## 精确模型能力门禁
+## Exact-model capability gate
 
-以下历史记录使用全新临时目录、旧 `read-only` sandbox、ephemeral 会话以及
-`additionalProperties: false` 的严格 `{ok: true}` JSON Schema 分别实测：
+The following historical runs used fresh temporary directories, the old `read-only` sandbox, ephemeral sessions, and
+a strict `{ok: true}` JSON Schema with `additionalProperties: false`:
 
-| 精确模型 ID | 退出码 | `output-last-message` | 结论 |
+| Exact model ID | Exit code | `output-last-message` | Result |
 | --- | ---: | --- | --- |
-| `gpt-5.6-sol` | 0 | `{"ok":true}` | 通过 |
-| `gpt-5.6-terra` | 0 | `{"ok":true}` | 通过 |
+| `gpt-5.6-sol` | 0 | `{"ok":true}` | Passed |
+| `gpt-5.6-terra` | 0 | `{"ok":true}` | Passed |
 
-这些记录只证明当时的模型 ID 与 structured output 可用，不证明当前安全门禁通过。
-允许列表只包含上表两个精确 ID；调用方必须显式传入其中一个 ID；
-runner 不会静默切换或回退模型。最初的发现 schema 仅写 `const` 时，服务端明确
-要求属性同时提供 `type`；最终门禁与烟雾测试均使用 `type: boolean` 加 `const: true`。
+These records show only that those model IDs and structured output worked at the time; they do not prove the current security gate passes.
+The allowlist contains only the two exact IDs above. Callers must explicitly provide one of them;
+the runner never switches models or falls back silently. The initial discovery schema used only `const`, but the server explicitly
+required `type` as well. Final gates and smoke tests therefore use both `type: boolean` and `const: true`.
 
-旧 runner 的历史 smoke 结果（不得作为当前安全 PASS）：
+Historical smoke results from the old runner (not evidence of current security acceptance):
 
 ```text
 npm run smoke:codex                                                   -> PASS: gpt-5.6-terra structured output
 $env:DINNERSYNC_CODEX_MODEL='gpt-5.6-sol'; npm run smoke:codex        -> PASS: gpt-5.6-sol structured output
 ```
 
-## Windows 启动器实测说明
+## Windows launcher observations
 
-本机 npm shim 是 `codex.cmd`。Node.js 22 使用
-`spawn("codex.cmd", ..., {shell: false})` 会立即返回 `EINVAL`；这是一项本机组合的
-实测结果，不是 Codex CLI 的官方跨平台保证。为坚持“不拼 shell”，runner 在 Windows
-选择全局 `@openai/codex` 包内的原生 `codex.exe`，并允许通过
-`DINNERSYNC_CODEX_EXECUTABLE` 显式指定绝对 `.exe` 路径。非 Windows 使用 `codex`。
+The local npm shim is `codex.cmd`. With Node.js 22,
+`spawn("codex.cmd", ..., {shell: false})` immediately returned `EINVAL`. This is an observation of this local combination,
+not an official cross-platform Codex CLI guarantee. To avoid constructing shell commands, the Windows runner
+selects the native `codex.exe` inside the global `@openai/codex` package and permits an explicit
+absolute `.exe` path through `DINNERSYNC_CODEX_EXECUTABLE`. Non-Windows systems use `codex`.
 
-本机 PATH 中的 WindowsApps `codex.exe` 别名经 Node 直接启动返回 `EPERM`，而 npm
-包内原生二进制可用 `shell: false` 启动并报告同一 CLI 版本。上述路径布局同样只是
-当前安装方式的实测，不应解释为官方稳定接口。
+Direct Node execution of the WindowsApps `codex.exe` alias on this machine's PATH returned `EPERM`, while the native npm-package
+binary launched with `shell: false` and reported the same CLI version. These path layouts are also observations
+of the current installation, not an officially stable interface.
 
-## 安全边界与已知局限
+## Security boundaries and known limitations
 
-- runner 的 cwd 是项目外新建的临时目录；schema 与最终结果都只存在于该目录，且
-  `finally` 清理。
-- 模型进程仅在无模型 OS canary 通过后才可启动；原生 Windows 实测不通过并 fail
-  closed，WSL/Linux 实测通过。named profile 不能仅凭配置解析成功或 prompt 声明视为安全。
-- 执行参数忽略用户配置与 rules，采用 ephemeral 会话；prompt 只走 stdin，不进入命令
-  参数。`shell_environment_policy.inherit="none"`、权限配置和工具禁用项经
-  `--strict-config` 传入；`shell_snapshot` 也被显式禁用。
-- stdout 与 stderr 在进程存活期间按流式字节上限处理。`resultPath` 在进程存活期间采用
-  轻量轮询做 best-effort 大小监测，一旦观察到超限便进入同一进程树终止流程；这不是
-  OS 硬配额，不能保证在两次轮询之间阻止瞬时增长。进程退出后，runner 会在同一文件
-  handle 上执行初始 `stat`、有界循环读取到 EOF 和最终 `stat`，严格拒绝超限或大小变化。
-- 超时、取消或超限时会向直接 child 请求 `SIGTERM`，并立即启动树级强制终止：POSIX
-  对独立进程组发送 `SIGKILL`，Windows 通过 `taskkill.exe /PID <pid> /T /F` 处理目标
-  进程树。这里为封闭直接 child 提前退出、孙进程仍存活的竞态，安全优先，不提供额外
-  宽限期。只有直接 child 已 close 且树级动作成功，才会标记 `terminationConfirmed: true`；
-  树动作失败、超时或无法确认时保留首个错误码，并明确标记 `terminationConfirmed: false`。
-- 错误不回传 prompt、原始 stderr、认证信息或本地路径；清理失败只附加脱敏诊断。
-- CLI 或 OS sandbox 后续升级时，必须先重新执行无模型 canary；不得直接重跑真实
-  模型或沿用历史 PASS。
-- 历史 smoke 只验证 CLI 登录、精确模型和 structured output；当前 Terra
-  RecipeDraft/EvidenceSpan PASS 另有独立的真实业务门禁记录，二者不能互相替代。
+- The runner's cwd is a newly created temporary directory outside the project. Schema and final results exist only there and are
+  cleaned up in `finally`.
+- A model process may start only after the model-free OS canary passes. Native Windows testing failed closed,
+  while WSL/Linux testing passed. Successful configuration parsing or prompt assertions alone do not establish profile safety.
+- Execution ignores user configuration and rules and uses an ephemeral session. Prompts travel through stdin, never command-line
+  arguments. `shell_environment_policy.inherit="none"`, permission configuration, and disabled tools are passed through
+  `--strict-config`; `shell_snapshot` is explicitly disabled too.
+- stdout and stderr are bounded by streaming byte limits while the process runs. Lightweight polling monitors `resultPath`
+  on a best-effort basis; observing an oversized file invokes the same process-tree termination path. This is not an
+  OS-enforced quota and cannot prevent transient growth between polls. After process exit, the runner uses the same file
+  handle for an initial `stat`, bounded reads through EOF, and a final `stat`, strictly rejecting oversize files or size changes.
+- Timeout, cancellation, or overflow requests `SIGTERM` for the direct child and immediately starts forced tree termination:
+  POSIX sends `SIGKILL` to the separate process group; Windows uses `taskkill.exe /PID <pid> /T /F` on the target
+  process tree. To close the race where the direct child exits before its descendants, safety takes priority and no extra
+  grace period is provided. `terminationConfirmed: true` requires both direct-child closure and successful tree termination;
+  failed, timed-out, or unconfirmed tree termination preserves the first error code and explicitly sets `terminationConfirmed: false`.
+- Errors never return prompts, raw stderr, authentication information, or local paths. Cleanup failures add only redacted diagnostics.
+- After any CLI or OS sandbox upgrade, rerun the model-free canary first. Never directly rerun real models
+  or reuse a historical PASS.
+- Historical smoke tests cover only CLI login, exact-model selection, and structured output. The current Terra
+  RecipeDraft/EvidenceSpan PASS has separate real business-gate evidence; neither substitutes for the other.

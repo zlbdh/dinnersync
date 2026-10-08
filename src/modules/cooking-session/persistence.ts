@@ -192,7 +192,7 @@ function warning(
 function reset(seed: SessionSeed, now: string) {
   return warning(
     advanceSessionTime(createCookingSession(seed.request, seed.initialSchedule), now),
-    { code: "SNAPSHOT_RECOVERED", message: "会话数据无效，已安全重置。" },
+    { code: "SNAPSHOT_RECOVERED", message: "Invalid session data was safely reset." },
   );
 }
 
@@ -236,7 +236,7 @@ export function createSessionPersistence(
   let unavailable = false;
   const storageWarning: SessionWarning = {
     code: "STORAGE_UNAVAILABLE",
-    message: "浏览器存储不可用，本次会话已降级为内存保存。",
+    message: "Browser storage is unavailable. This session is stored in memory only.",
   };
   const accessStorage = () => {
     if (unavailable) return null;

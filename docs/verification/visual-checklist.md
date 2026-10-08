@@ -1,68 +1,68 @@
-# DinnerSync 视觉验收清单
+# DinnerSync Visual Acceptance Checklist
 
-验收日期：2026-07-19
+Acceptance date: July 19, 2026
 
-## 捕获环境
+## Capture environment
 
-- Next.js production build 与 `next start`，不是开发模式页面。
-- Chromium，`en-US` locale，UTC 时区，浅色主题，reduced motion。
-- Hosted fixture；固定浏览器墙钟，未调用 Local AI。
-- 页面截图仅包含应用 viewport，不包含浏览器工具栏、桌面或终端。
+- Next.js production build with `next start`, not development-mode pages.
+- Chromium, `en-US` locale, UTC time zone, light theme, and reduced motion.
+- Hosted fixture with a fixed browser wall clock; no Local AI calls.
+- Screenshots contain only the application viewport, with no browser toolbar, desktop, or terminal.
 
-复现命令：
+Reproduction command:
 
 ```powershell
 npm.cmd run build
 node scripts/capture-submission.mjs
 ```
 
-脚本使用独立端口 `3211`，完成或失败后都会终止其精确进程树。可通过
-`DINNERSYNC_CAPTURE_PORT` 覆盖端口。
+The script uses dedicated port `3211` and terminates its exact process tree on success or failure. Override the port with
+`DINNERSYNC_CAPTURE_PORT`.
 
-## 自动验收结果
+## Automated acceptance results
 
-| 阶段 / viewport | 横向溢出 | 重复 ID | 阶段焦点 | 关键触控 | 时间线模式 |
+| Stage / viewport | Horizontal overflow | Duplicate IDs | Stage focus | Key touch target | Timeline mode |
 |---|---:|---:|---|---|---|
-| Setup · 1440×900 | 0 px | 0 | Setup 标题 | Try demo ≥44×44 | — |
-| Review · 1440×900 | 0 px | 0 | Review 标题 | Build timeline ≥44×44 | — |
-| Plan · 1440×900 | 0 px | 0 | Plan 标题 | Start cooking ≥44×44 | tracks=`grid`，compact=`none` |
-| Plan · 1024×768 | 0 px | 0 | Plan 标题保持 | Start cooking ≥44×44 | tracks=`grid`，compact=`none` |
-| Cook 重排 · 1440×900 | 0 px | 0 | Cook 标题 | Replay ≥44×44 | 可见 `Replanned` 标记 |
-| Summary · 1440×900 | 0 px | 0 | Summary 标题 | Start another dinner ≥44×44 | — |
-| Plan · 390×844 | 0 px | 0 | Plan 标题 | Start cooking ≥44×44 | tracks=`none`，compact=`grid` |
+| Setup · 1440×900 | 0 px | 0 | Setup heading | Try demo ≥44×44 | — |
+| Review · 1440×900 | 0 px | 0 | Review heading | Build timeline ≥44×44 | — |
+| Plan · 1440×900 | 0 px | 0 | Plan heading | Start cooking ≥44×44 | tracks=`grid`, compact=`none` |
+| Plan · 1024×768 | 0 px | 0 | Plan heading retained | Start cooking ≥44×44 | tracks=`grid`, compact=`none` |
+| Replanned Cook · 1440×900 | 0 px | 0 | Cook heading | Replay ≥44×44 | Visible `Replanned` marker |
+| Summary · 1440×900 | 0 px | 0 | Summary heading | Start another dinner ≥44×44 | — |
+| Plan · 390×844 | 0 px | 0 | Plan heading | Start cooking ≥44×44 | tracks=`none`, compact=`grid` |
 
-额外门禁：
+Additional gates:
 
-- Desktop 与 mobile 的 console warning/error、`pageerror` 均为 0。
-- Hosted 捕获过程中 `/api/local-ai/*`、外部 XHR/fetch、已知模型域名请求均为 0。
-- Cook 截图前确认快照已记录 `TASK_DELAYED` 且 `delayMinutes: 8`，同时页面存在可见重排标记。
-- Summary 焦点落在完成标题；画面显示计划 7:00 PM、实际 7:08 PM、晚 8 分钟及 25 次 replan。
+- Zero desktop/mobile console warnings, console errors, and `pageerror` events.
+- Zero `/api/local-ai/*`, external XHR/fetch, or known model-domain requests during Hosted capture.
+- Before the Cook screenshot, the snapshot contained `TASK_DELAYED` with `delayMinutes: 8`, and a replan marker was visible.
+- Summary focus landed on the completion heading. The page showed planned 7:00 PM, actual 7:08 PM, eight minutes late, and 25 replans.
 
-## 提交截图
+## Submission screenshots
 
-| 画面 | 文件 | 尺寸 | 目视结果 |
+| View | File | Dimensions | Visual result |
 |---|---|---:|---|
-| Setup | [setup-1440x900.png](../submission/assets/setup-1440x900.png) | 1440×900 | CTA、Hosted 状态与 service preview 清晰 |
-| Review | [review-1440x900.png](../submission/assets/review-1440x900.png) | 1440×900 | reviewed fixture、首份菜谱与 decision ledger 清晰 |
-| Plan timeline | [plan-timeline-1440x900.png](../submission/assets/plan-timeline-1440x900.png) | 1440×900 | 三菜并行时间线与营养卡清晰 |
-| Plan tablet | [plan-timeline-1024x768.png](../submission/assets/plan-timeline-1024x768.png) | 1024×768 | 页面无横溢，轨道使用组件内滚动 |
-| Cook 延误重排 | [cook-replanned-1440x900.png](../submission/assets/cook-replanned-1440x900.png) | 1440×900 | Replay running、当前/下一动作及 Replanned 标记清晰 |
-| Summary | [summary-1440x900.png](../submission/assets/summary-1440x900.png) | 1440×900 | 7:00 / 7:08、8 分钟、1 次延误、25 次 replan 清晰 |
-| Mobile plan | [mobile-plan-390x844.png](../submission/assets/mobile-plan-390x844.png) | 390×844 | compact chronological timeline 生效，无横溢 |
+| Setup | [setup-1440x900.png](../submission/assets/setup-1440x900.png) | 1440×900 | Clear CTA, Hosted status, and service preview |
+| Review | [review-1440x900.png](../submission/assets/review-1440x900.png) | 1440×900 | Clear reviewed fixture, first recipe, and decision ledger |
+| Plan timeline | [plan-timeline-1440x900.png](../submission/assets/plan-timeline-1440x900.png) | 1440×900 | Clear parallel three-dish timeline and nutrition cards |
+| Plan tablet | [plan-timeline-1024x768.png](../submission/assets/plan-timeline-1024x768.png) | 1024×768 | No page overflow; tracks scroll within the component |
+| Cook delay replan | [cook-replanned-1440x900.png](../submission/assets/cook-replanned-1440x900.png) | 1440×900 | Clear Replay running status, current/next actions, and Replanned marker |
+| Summary | [summary-1440x900.png](../submission/assets/summary-1440x900.png) | 1440×900 | Clear 7:00 / 7:08 times, eight minutes, one delay, and 25 replans |
+| Mobile plan | [mobile-plan-390x844.png](../submission/assets/mobile-plan-390x844.png) | 390×844 | Compact chronological timeline active with no horizontal overflow |
 
-## 隐私与提交安全
+## Privacy and submission safety
 
-逐张目视检查确认截图中没有：
+Each screenshot was visually checked to confirm it contained no:
 
-- 用户名、邮箱或账户头像；
-- token、密钥、服务器凭证或请求头；
-- 本机绝对路径、终端内容或浏览器地址栏；
-- Local AI 输入或个人菜谱。
+- Usernames, email addresses, or account avatars.
+- Tokens, keys, server credentials, or request headers.
+- Local absolute paths, terminal content, or browser address bars.
+- Local AI input or personal recipes.
 
-截图只使用内置 Hosted demo 数据，并显示 `Hosted · no model`。
+Screenshots use only built-in Hosted demo data and display `Hosted · no model`.
 
-## 结论与非阻断观察
+## Conclusion and nonblocking observations
 
-- 未发现 P0/P1 视觉或交互问题。
-- 1024px 时间线按设计使用轨道内部横向滚动；document 本身横向溢出仍为 0。
-- Cook 延误态的底层排程警告已统一为英文，并由 reducer 行为测试和新录制 Hosted 片段复核。
+- No P0/P1 visual or interaction issues were found.
+- At 1024px, timeline tracks scroll internally as designed; document-level horizontal overflow remains zero.
+- Underlying scheduling warnings in the delayed Cook state are now consistently English, verified by reducer behavior tests and a newly recorded Hosted clip.

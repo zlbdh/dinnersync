@@ -40,10 +40,10 @@ export type TaskCardProps = {
 function clockLabel(instant: string, browserClock: boolean) {
   if (!browserClock) return "--:--";
   return parseIsoInstant(instant).ok
-    ? new Intl.DateTimeFormat("en-GB", {
+    ? new Intl.DateTimeFormat("en-US", {
         hour: "2-digit",
         minute: "2-digit",
-        hour12: false,
+        hour12: true,
       }).format(new Date(instant))
     : "Time unavailable";
 }

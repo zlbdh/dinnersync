@@ -107,10 +107,10 @@ describe("CookScreen", () => {
 
   it("formats planned ISO instants in the user's local time zone", () => {
     renderCook();
-    const localClock = new Intl.DateTimeFormat("en-GB", {
+    const localClock = new Intl.DateTimeFormat("en-US", {
       hour: "2-digit",
       minute: "2-digit",
-      hour12: false,
+      hour12: true,
     }).format(new Date(START));
 
     expect(screen.getAllByRole("time")[0]).toHaveTextContent(localClock);

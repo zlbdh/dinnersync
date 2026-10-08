@@ -15,10 +15,10 @@ type TimelineEntry = {
   recipe: Recipe;
 };
 
-const CLOCK = new Intl.DateTimeFormat("en-GB", {
+const CLOCK = new Intl.DateTimeFormat("en-US", {
   hour: "2-digit",
   minute: "2-digit",
-  hour12: false,
+  hour12: true,
 });
 
 const RESOURCE_LABELS: Record<ResourceId, string> = {

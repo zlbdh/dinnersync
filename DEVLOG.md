@@ -1,175 +1,175 @@
-# DinnerSync 开发记录
+# DinnerSync Development Log
 
-## 2026-07-19 [提交成片复核] Task 19
+## 2026-07-19 [Final submission video review] Task 19
 
-### 1. 最终媒体门禁必须绑定分镜时长
+### 1. The final media gate must enforce storyboard duration
 
-- **现象**：旧校验只要求 MP4 大于 0 秒且小于 180 秒；一秒黑色视频或 179.5 秒成片也能通过自动门禁。
-- **根因**：媒体探针只检查赛事硬上限和音视频流，没有把真实媒体与已验证的 150–170 秒策略、168 秒分镜绑定。
-- **修复**：默认要求实际媒体在 150–170 秒内；最终模式还要求 ffprobe 时长与 `storyboard.totalSeconds` 在 ±0.5 秒内，同时继续要求真实音频流、视频流和严格小于 180 秒。
-- **教训**：计划文件与成品校验不能各自正确却互不关联；发布门禁必须验证“交付物就是被批准的计划”。
+- **Symptom:** The old validator required only an MP4 longer than zero and shorter than 180 seconds, so a one-second black video or a 179.5-second video could pass automatically.
+- **Root cause:** Media probing checked only the competition's hard limit and audio/video streams without connecting actual media to the verified 150–170-second strategy and 168-second storyboard.
+- **Fix:** Actual media must now be 150–170 seconds by default. Final mode also requires ffprobe duration within ±0.5 seconds of `storyboard.totalSeconds`, while retaining real audio/video streams and a strict under-180-second limit.
+- **Lesson:** Plans and final-artifact checks must validate their relationship, not merely pass independently. The release gate must prove that the deliverable matches the approved plan.
 
-### 2. 抽帧复核能发现测试未覆盖的语言泄漏
+### 2. Frame inspection catches language leaks missed by tests
 
-- **现象**：英文产品与英文演示中，重排后的 Session notice 仍显示两条中文告警。
-- **根因**：领域 reducer 内残留中文消息，现有测试只验证结构化 warning code，没有锁定最终用户文案。
-- **修复**：先为真实不可行重排增加英文消息失败断言，再把两条告警改为英文；重录 Hosted 素材并复查关键帧。
-- **教训**：自动 E2E 能证明流程完成，但不能替代成片逐帧检查；用户可见错误消息也应进入行为测试。
+- **Symptom:** In the English product and demo, the replanned Session notice still showed two Chinese warnings.
+- **Root cause:** Chinese messages remained in the domain reducer. Existing tests checked structured warning codes but did not assert final user-facing copy.
+- **Fix:** Added failing English-message assertions for real infeasible replanning, translated both warnings, rerecorded Hosted footage, and inspected key frames.
+- **Lesson:** Automated E2E proves workflow completion but cannot replace frame-by-frame final-video inspection. User-facing errors also belong in behavior tests.
 
-### 3. 生成语言约束不能覆盖逐字证据字段
+### 3. Generated-language requirements must exclude verbatim evidence fields
 
-- **现象**：prompt 同时要求所有 `sourceText` 原样复制输入、所有 human-readable values 使用英文，对非英文菜谱存在语义冲突。
-- **根因**：语言规范没有区分模型生成值与证据载体；后端校验虽会安全拒绝篡改后的 `sourceText`，但模型仍可能被冲突指令误导。
-- **修复**：把英文要求限定为模型生成的可读字段和推断理由，明确排除必须逐字复制的 `sourceText` 与 `evidence.text`，并增加中文原文回归测试。
-- **教训**：结构化抽取中的“输出语言”和“来源保真”是两条独立约束，必须明确优先级和例外字段。
+- **Symptom:** The prompt required all `sourceText` fields to copy input verbatim while requiring all human-readable values in English, creating a conflict for non-English recipes.
+- **Root cause:** Language rules did not distinguish generated values from evidence carriers. Backend validation safely rejected altered `sourceText`, but conflicting instructions could still mislead the model.
+- **Fix:** Limited English requirements to generated readable fields and inference reasons, explicitly excluding verbatim `sourceText` and `evidence.text`, and added a Chinese-source regression test.
+- **Lesson:** Output language and source fidelity are separate constraints in structured extraction. Their precedence and exempt fields must be explicit.
 
-## 2026-07-19 [Local AI 实机门禁] Task 18
+## 2026-07-19 [Local AI live-environment gate] Task 18
 
-### 1. 权限配置必须经过真实 Codex CLI 解析
+### 1. Permission configuration must be parsed by the real Codex CLI
 
-- **现象**：单元测试只核对 argv 形状时全部通过，但 Codex CLI 实机返回 `FilesystemPermissionToml` 解析错误，Local AI 只能折叠为 `SANDBOX_UNAVAILABLE`。
-- **根因**：把 `:root`、`:minimal` 和 `:workspace_roots` 直接拼进 dotted `--config` key，不能稳定表达带冒号的 TOML 路径键。
-- **修复**：把整个 filesystem 权限作为一张 inline table 传入，继续保持根目录拒绝、最小运行时只读、临时工作区只读和网络禁用；在 WSL/Linux 上用真实 CLI canary 验证。
-- **教训**：安全配置不能只做字符串快照测试；必须让目标版本的真实 CLI 解析，并让 OS 边界行为通过 canary。
+- **Symptom:** Unit tests checking argument shapes passed, but the real Codex CLI returned a `FilesystemPermissionToml` parsing error, leaving Local AI at `SANDBOX_UNAVAILABLE`.
+- **Root cause:** Placing `:root`, `:minimal`, and `:workspace_roots` directly into dotted `--config` keys did not reliably express colon-containing TOML path keys.
+- **Fix:** Passed the entire filesystem permission configuration as one inline table, retaining root denial, read-only minimal runtime/workspace, and disabled networking. Verified with the real CLI canary on WSL/Linux.
+- **Lesson:** String snapshots are insufficient for security configuration. The target CLI version must parse it, and OS boundary behavior must pass the canary.
 
-### 2. 沙箱隐藏路径可能表现为 `ENOENT`
+### 2. Sandbox-hidden paths may produce `ENOENT`
 
-- **现象**：Linux bubblewrap 已隐藏工作区外文件，但探针只接受 `EACCES`/`EPERM`，把正确隔离误报为失败。
-- **根因**：不同 OS 沙箱对不可见路径的错误语义不同；隐藏挂载常返回 `ENOENT`。
-- **修复**：探针接受 `ENOENT` 作为候选拒绝结果，同时在沙箱进程退出后再次从宿主读取固定 canary 并核对内容，避免把真实文件丢失误判为隔离成功。
-- **教训**：跨平台 canary 应验证能力结果，而不是绑定单一 errno；放宽 errno 时必须增加宿主侧反证。
+- **Symptom:** Linux bubblewrap hid files outside the workspace, but the probe accepted only `EACCES`/`EPERM` and incorrectly reported valid isolation as failure.
+- **Root cause:** OS sandboxes report invisible paths differently; hidden mounts often return `ENOENT`.
+- **Fix:** Accepted `ENOENT` as a candidate denial result, then reread the fixed canary from the host after sandbox exit and checked its contents, preventing a genuinely missing file from being mistaken for isolation.
+- **Lesson:** Cross-platform canaries should verify capability outcomes instead of a single errno. Broadening accepted errors requires host-side counterchecks.
 
-### 3. 模型证据提示要明确嵌套 sourceText 与索引公式
+### 3. Evidence prompts must specify nested sourceText and index formulas
 
-- **现象**：真实 `gpt-5.6-terra` 首次返回的 evidence offset 正确，但 ingredient/step 的 `sourceText` 被缩成局部摘录，业务门禁按 `EVIDENCE_MISMATCH` 拒绝。
-- **根因**：提示只说“保留完整 sourceText”，没有逐一约束根、ingredient 和 step，也没有写清 evidence 的计算与不确定时的降级方式。
-- **修复**：明确所有嵌套 `sourceText` 必须逐字重复完整输入，`end = start + evidence.text.length`；无法确定精确片段时必须改为 inferred、空 evidence 和具体原因。真实 Terra RecipeDraft 门禁随后通过。
-- **教训**：结构化输出 schema 只能约束形状；跨字段相等、相对索引和证据真实性仍需清晰提示加确定性验证器，失败时绝不能回退到 fixture 冒充成功。
+- **Symptom:** The first real `gpt-5.6-terra` response had correct evidence offsets but shortened ingredient/step `sourceText` to excerpts, so the business gate rejected it with `EVIDENCE_MISMATCH`.
+- **Root cause:** The prompt said to retain complete sourceText without explicitly covering root, ingredient, and step fields or explaining evidence calculations and uncertainty fallback.
+- **Fix:** Required every nested `sourceText` to repeat the complete input verbatim and `end = start + evidence.text.length`. Uncertain spans must use inferred status, empty evidence, and a concrete reason. The real Terra RecipeDraft gate then passed.
+- **Lesson:** Structured-output schemas constrain shape. Cross-field equality, relative indexes, and evidence authenticity still require clear prompts and deterministic validators. Never fall back to fixtures and claim success.
 
-## 2026-07-19 [演示领域闭环] Task 9
+## 2026-07-19 [Complete demo domain workflow] Task 9
 
-### 1. 营养记录必须落到具体官方条目
+### 1. Nutrition records must identify specific official entries
 
-- **记录**：2026-07-19 01:26 by Codex — 记录营养来源复审中发现的可追溯性缺口。
-- **现象**：目录最初只链接 USDA FoodData Central 首页，且“红洋葱 32 kcal/100g”无法由对应官方条目支持。
-- **根因**：演示数值先于来源核验确定，来源字段只满足格式校验，没有证明名称、食物状态与热量值来自同一记录。
-- **修复**：每项记录改为唯一 FDC ID 页面；使用 FDC 170008 的甜洋葱替换不匹配的红洋葱，并明确红甜椒 Foundation 能量值的取整依据。
-- **教训**：营养 fixture 先核对“名称 + 状态 + 数值 + 条目 ID”，再锁定总热量测试，不能把数据库首页当作逐项溯源。
+- **Record:** 2026-07-19 01:26 by Codex — Recorded a traceability gap found during nutrition-source review.
+- **Symptom:** The catalog initially linked only to the USDA FoodData Central homepage, and the corresponding official entry did not support “red onion, 32 kcal/100g.”
+- **Root cause:** Demo values were chosen before source verification. Source fields passed format checks without proving that name, food state, and calories came from the same record.
+- **Fix:** Linked each record to a unique FDC ID page, replaced the mismatched red onion with sweet onion from FDC 170008, and documented rounding for the red sweet pepper Foundation energy value.
+- **Lesson:** Verify name, state, value, and record ID before locking nutrition-fixture totals. A database homepage is not per-item provenance.
 
-### 2. 文本证据必须锚定当前语义行
+### 2. Text evidence must be anchored to the current semantic line
 
-- **记录**：2026-07-19 01:26 by Codex — 记录重复数值和温度导致证据串行的缺陷。
-- **现象**：重复的 `6 g` 与 `200 C` 可能指向前一个食材或预热步骤，虽然根文本切片校验仍会通过。
-- **根因**：证据查找只从全文首次匹配，没有限制在当前食材或步骤所在行。
-- **修复**：食材数量和步骤来源字段均限定到对应行，并增加重复值与烤制温度的回归测试。
-- **教训**：证据正确性不仅是“文本存在”，还必须验证它位于当前字段的语义上下文中。
+- **Record:** 2026-07-19 01:26 by Codex — Recorded evidence misalignment caused by repeated amounts and temperatures.
+- **Symptom:** Repeated `6 g` and `200 C` values could point to an earlier ingredient or preheating step while still passing root-text slice validation.
+- **Root cause:** Evidence lookup used the first whole-document match without restricting it to the current ingredient or step line.
+- **Fix:** Scoped ingredient amounts and step source fields to their corresponding lines, with regression tests for repeated values and roasting temperatures.
+- **Lesson:** Evidence correctness requires more than text existence; the text must belong to the current field's semantic context.
 
-### 3. 持久化恢复要重算派生状态并严格拒绝坏快照
+### 3. Persistence recovery must recompute derived state and reject malformed snapshots
 
-- **记录**：2026-07-19 01:26 by Codex — 记录浏览器快照边界和状态机闭包决策。
-- **现象**：宽松恢复可能接受畸形嵌套设置、未完成的 summary，或恢复出 reducer 无法正常产生的阶段组合。
-- **根因**：只校验顶层版本与字段存在，没有把嵌套结构、阶段不变量和派生结果纳入信任边界。
-- **修复**：严格校验嵌套快照，使用公共 builder 重算计划、用事件重放 session，并把状态流收紧为 setup → review → plan → cook → summary。
-- **教训**：客户端存储是不可信输入；恢复逻辑必须验证“结构 + 派生一致性 + 可达状态”，失败时安全回到 seed。
+- **Record:** 2026-07-19 01:26 by Codex — Recorded browser-snapshot boundaries and state-machine closure decisions.
+- **Symptom:** Permissive recovery could accept malformed nested settings, incomplete summaries, or phase combinations the reducer could never produce normally.
+- **Root cause:** Validation checked only top-level versions and field presence, excluding nested structures, phase invariants, and derived results from the trust boundary.
+- **Fix:** Strictly validate nested snapshots, recompute plans through the public builder, replay session events, and constrain the flow to setup → review → plan → cook → summary.
+- **Lesson:** Client storage is untrusted input. Recovery must validate structure, derived consistency, and reachable state, safely returning to the seed on failure.
 
-## 2026-07-19 [设置页可访问性] Task 10
+## 2026-07-19 [Setup page accessibility] Task 10
 
-### 1. 全局焦点环仍可能被局部控件规则覆盖
+### 1. Local control rules can override global focus rings
 
-- **记录**：2026-07-19 02:34 by Codex — 记录设置页独立复审发现的键盘焦点缺口。
-- **现象**：页面虽然定义了 `:focus-visible`，但后续表单控件的 `outline: none` 让 radio、input 和 select 的键盘焦点不可辨认；原 saffron 颜色相对纸张背景的对比也不足 3:1。
-- **根因**：只检查了设计令牌和全局规则，没有验证最终层叠后的计算样式与实际键盘路径。
-- **修复**：移除轮廓覆盖，改用深色 `--focus` 令牌，为模式卡补相邻元素焦点环，并用对比度、CSS 门禁和真实键盘操作共同回归。
-- **教训**：焦点可见性必须验证最终 cascade、对比度和真实 Tab 路径，不能只凭源码中存在 `:focus-visible` 判断。
+- **Record:** 2026-07-19 02:34 by Codex — Recorded a keyboard-focus gap found in independent setup-page review.
+- **Symptom:** Although the page defined `:focus-visible`, later form-control `outline: none` rules hid keyboard focus on radios, inputs, and selects. The original saffron color also had less than 3:1 contrast against the paper background.
+- **Root cause:** Review checked design tokens and global rules without verifying final computed styles and actual keyboard paths.
+- **Fix:** Removed outline overrides, used a darker `--focus` token, added adjacent-element focus rings to mode cards, and verified contrast, CSS gates, and real keyboard navigation together.
+- **Lesson:** Focus visibility requires final cascade, contrast, and real Tab-path verification; merely finding `:focus-visible` in source is insufficient.
 
-### 2. 跨字段校验必须把恢复提示挂到真正出错的字段
+### 2. Cross-field validation must attach recovery guidance to the field that failed
 
-- **记录**：2026-07-19 02:34 by Codex — 记录服务时间组合校验的无障碍修复。
-- **现象**：清空 `Available from` 时，错误最初只通过 `aria-describedby` 关联到 `Dinner lands`，读屏用户无法从缺失字段获得恢复提示。
-- **根因**：一个 `timesValid` 布尔值同时承担“开始时间缺失、落桌时间缺失、时间顺序错误”三种语义。
-- **修复**：拆分可用时间、落桌时间存在性和顺序校验；每个字段独立设置 `aria-invalid` 与说明，顺序错误只归属落桌时间。
-- **教训**：组合约束可以共享最终门禁，但字段错误状态必须分解到可操作的输入与具体恢复文案。
+- **Record:** 2026-07-19 02:34 by Codex — Recorded the service-time combination validation accessibility fix.
+- **Symptom:** Clearing `Available from` initially associated the error only with `Dinner lands` through `aria-describedby`, leaving screen-reader users without recovery guidance on the missing field.
+- **Root cause:** One `timesValid` boolean represented three different conditions: missing start time, missing service time, and invalid time order.
+- **Fix:** Separated start/service presence checks from ordering. Each field now has its own `aria-invalid` and description; ordering errors belong only to service time.
+- **Lesson:** Combined constraints may share a final gate, but field errors must map to actionable inputs and specific recovery copy.
 
-## 2026-07-19 [Local AI 批次身份完整性] Task 11
+## 2026-07-19 [Local AI batch identity integrity] Task 11
 
-### 1. 单份结构合法不代表批次身份唯一
+### 1. Valid individual structures do not guarantee unique batch identities
 
-- **记录**：2026-07-19 04:06 by Codex — 记录 Local AI 输出在聚合边界需要额外身份约束的原因。
-- **现象**：两个各自通过 schema 与证据校验的 draft 可以复用同一个 recipe ID；单份 draft 内也可以出现重复 ingredient ID 或 step ID，导致 Review 的键、reducer 定位和后续依赖引用产生歧义。
-- **根因**：既有校验只验证每个对象的形状、来源和证据，没有验证数组元素及批次之间的身份唯一性。
-- **修复**：单份严格 schema 拒绝重复 ingredient/step ID；服务端 Codex 批次解析与前端 Local AI helper 拒绝跨 draft 的重复 recipe ID，并在整个批次保证 step ID 唯一；快照恢复执行同一聚合约束；提示词也明确声明 recipe、ingredient 与 step 的唯一性范围，所有违规输入统一安全失败。
-- **教训**：任何以 ID 连接 UI、reducer 或依赖图的模型输出，都必须同时验证单项结构和聚合后的唯一性，且应在服务端与消费端双层防御。
+- **Record:** 2026-07-19 04:06 by Codex — Recorded why Local AI output needs additional identity constraints at aggregation boundaries.
+- **Symptom:** Two drafts independently passing schema/evidence checks could reuse a recipe ID. Duplicate ingredient or step IDs within one draft could also make Review keys, reducer targeting, and later dependency references ambiguous.
+- **Root cause:** Existing validation checked each object's shape, provenance, and evidence without enforcing uniqueness within arrays or across the batch.
+- **Fix:** Strict single-draft schemas reject duplicate ingredient/step IDs. Server Codex batch parsing and the frontend Local AI helper reject recipe-ID duplicates across drafts and enforce batch-wide step-ID uniqueness. Snapshot recovery applies the same aggregate constraints. Prompts explicitly state uniqueness scopes, and all violations fail safely.
+- **Lesson:** Model output connected to UI, reducers, or dependency graphs by IDs requires both individual validation and aggregate uniqueness checks, enforced on both server and consumer boundaries.
 
-### 2. 派生确认作废时，组件本地选择也必须同步作废
+### 2. Invalidating derived confirmation must also clear local component selections
 
-- **记录**：2026-07-19 04:23 by Codex — 记录营养复核本地状态与领域状态不同步的问题。
-- **现象**：修改食材后，reducer 已把旧营养确认重置为 unresolved，但 NutritionMatch 的单选候选仍可能保持选中，用户无需重新选择即可再次确认。
-- **根因**：领域派生状态由 reducer 管理，而候选单选框由组件 `useState` 管理；只重置前者并不会自动清理后者。
-- **修复**：监听确认状态从 confirmed 回到 unresolved 且引用为空的转换，清空候选选择；保留尚未提交的主动选择，并加入“确认后作废必须重新选择”的回归测试。
-- **教训**：作废派生结果时，要把所有能缩短重新确认路径的 UI 暂存态一起纳入失效协议，不能只清后端或 reducer 字段。
+- **Record:** 2026-07-19 04:23 by Codex — Recorded disagreement between nutrition-review component state and domain state.
+- **Symptom:** Editing an ingredient reset old nutrition confirmation to unresolved in the reducer, but NutritionMatch could retain its radio selection, allowing reconfirmation without making a new choice.
+- **Root cause:** The reducer managed derived domain state while component `useState` managed candidate selection. Resetting one did not automatically clear the other.
+- **Fix:** Observe transitions from confirmed to unresolved with an empty reference and clear candidate selection. Preserve active unsubmitted selections, and add a regression requiring reselection after invalidation.
+- **Lesson:** Invalidating derived results must include temporary UI state that could bypass renewed confirmation, not merely backend or reducer fields.
 
-### 3. 不可信领域 ID 不应直接成为 DOM 标识
+### 3. Untrusted domain IDs must not directly become DOM identifiers
 
-- **记录**：2026-07-19 04:23 by Codex — 记录 Review 页面可访问性复审中的标识隔离决策。
-- **现象**：模型生成的 recipe、ingredient、step ID 若直接用于 DOM `id`、radio `name` 或 aria 关联，可能与页面 landmark 冲突，也可能让重复或特制值破坏标签关系。
-- **根因**：领域身份和文档身份承担不同信任边界，却被当成同一类标识复用。
-- **修复**：领域 ID 只用于 reducer 与依赖映射；DOM 关联和单选组统一由 React `useId()` 生成，同时在消费边界验证领域 ID 的唯一性，并用冲突形状回归测试验证所有 DOM `id` 唯一。
-- **教训**：外部或模型生成的 ID 可以作为经过验证的业务键，但不能自动获得成为 DOM、CSS 或 aria 标识的权限。
+- **Record:** 2026-07-19 04:23 by Codex — Recorded identifier separation from the Review accessibility audit.
+- **Symptom:** Model-generated recipe, ingredient, and step IDs used directly as DOM `id`, radio `name`, or ARIA references could collide with landmarks; duplicate or crafted values could break label relationships.
+- **Root cause:** Domain identity and document identity cross different trust boundaries but were reused as if interchangeable.
+- **Fix:** Keep domain IDs only for reducer/dependency mapping. Generate DOM relationships and radio groups with React `useId()`, validate domain-ID uniqueness at consumption, and test adversarial collisions to ensure all DOM IDs remain unique.
+- **Lesson:** External or model-generated IDs can be validated business keys without automatically being allowed as DOM, CSS, or ARIA identifiers.
 
-## 2026-07-19 [计划、烹饪与恢复闭环] Task 12
+## 2026-07-19 [Planning, cooking, and recovery workflow] Task 12
 
-### 1. 加速演示必须复用真实命令入口
+### 1. Accelerated demos must reuse real command entry points
 
-- **记录**：2026-07-19 04:58 by Codex — 记录 60× 回放与真实烹饪状态机共用事件路径的决策。
-- **现象**：若演示直接构造最终 Summary，页面虽然看似完整，却无法证明延误、资源占用、重排和事件账本由正常交互产生。
-- **根因**：把“缩短等待时间”误当成“绕过领域过程”，会形成与真实按钮操作不同的第二套业务逻辑。
-- **修复**：回放按下一事件时间计算 `START`、`DELAY` 或 `COMPLETE`，允许无资源冲突的任务并行，并通过 Cook 页面收到的同一个 dispatcher 发送；控制器用同一领域函数维护镜像会话，reducer 只有在全部任务真实完成后才进入 Summary。回放游标同时钳制到当前 Cook 时钟，停留或恢复后不会回填过去事件。固定八分钟延误最终得到 19:08，而不是串行回放伪造的 19:57。
-- **教训**：演示加速只能改变事件间隔，不能改变事件语义、验证入口、并行关系或完成条件。
+- **Record:** 2026-07-19 04:58 by Codex — Recorded the decision for 60× replay and the real cooking state machine to share event paths.
+- **Symptom:** Directly constructing a final Summary made the page look complete without proving that normal interaction produced delays, resource occupancy, replanning, and the event ledger.
+- **Root cause:** Treating shorter waits as permission to bypass domain processing creates a second business-logic path unlike real buttons.
+- **Fix:** Replay computes `START`, `DELAY`, or `COMPLETE` from the next event time, permits conflict-free parallel tasks, and sends events through the Cook page's same dispatcher. The controller maintains a mirror session with the same domain functions; the reducer reaches Summary only after every task actually completes. The replay cursor is clamped to the current Cook clock, preventing past-event backfilling after waiting or recovery. The fixed eight-minute delay now yields 19:08 instead of an artificial serial-replay 19:57.
+- **Lesson:** Demo acceleration may change event spacing, not event semantics, validation entry points, parallel relationships, or completion conditions.
 
-### 2. 刷新恢复必须先验证再水合，且不能先写后读
+### 2. Refresh recovery must validate before hydration and read before writing
 
-- **记录**：2026-07-19 04:58 by Codex — 记录正在烹饪会话的浏览器恢复边界。
-- **现象**：组件挂载时若先保存初始 setup，会覆盖已有 Cook 快照；若直接信任 `localStorage`，畸形阶段或伪造派生结果又可能进入 reducer。
-- **根因**：持久化副作用没有明确区分“尚未水合”和“可以保存”，且浏览器存储属于不可信输入。
-- **修复**：先经现有严格持久化适配器验证嵌套结构、重算计划并重放 session，再通过专用的 validated restore action 注入；仅在水合完成后保存。虚拟烹饪时间同时保存墙钟锚点，后台节流或刷新后按真实经过时长投影为 `running`/`due`，但永不自动 `complete`，并明确播报已恢复会话。
-- **教训**：刷新恢复需要同时保证读取顺序、信任边界和时间语义；“能反序列化”远不等于“可恢复”。
+- **Record:** 2026-07-19 04:58 by Codex — Recorded browser-recovery boundaries for active cooking sessions.
+- **Symptom:** Saving initial setup on mount could overwrite an existing Cook snapshot. Trusting `localStorage` directly could inject malformed phases or fabricated derived results into the reducer.
+- **Root cause:** Persistence effects did not distinguish unhydrated state from save-ready state, and browser storage is untrusted input.
+- **Fix:** Use the strict persistence adapter to validate nested structures, recompute the plan, and replay the session before injecting a dedicated validated restore action. Save only after hydration. Persist a wall-clock anchor for virtual cooking time so background throttling or refresh projects actual elapsed time into `running`/`due`, never automatic `complete`, and clearly announces recovery.
+- **Lesson:** Refresh recovery must preserve read order, trust boundaries, and time semantics. Deserialization alone is not recovery.
 
-### 3. 阶段切换焦点要覆盖异步按钮卸载竞态
+### 3. Phase-transition focus must handle asynchronous button-unmount races
 
-- **记录**：2026-07-19 04:58 by Codex — 记录加速回放结束后 Summary 标题焦点偶发丢失的修复。
-- **现象**：Summary 已渲染，但触发回放的按钮随 Cook 页面卸载时，浏览器可能把焦点退回 `body`。
-- **根因**：普通 effect 与异步点击结束、旧节点卸载之间存在时序竞态。
-- **修复**：Summary 使用 layout effect 在提交阶段稳定聚焦标题，并保留 `tabIndex=-1` 的语义焦点目标。
-- **教训**：跨页面焦点不能只验证节点出现，还要在真实异步交互和卸载顺序下验证最终 `activeElement`。
+- **Record:** 2026-07-19 04:58 by Codex — Recorded the fix for intermittent Summary-heading focus loss after accelerated replay.
+- **Symptom:** Summary rendered, but unmounting the replay button with Cook could cause the browser to return focus to `body`.
+- **Root cause:** Ordinary effects raced with asynchronous click completion and old-node unmounting.
+- **Fix:** Summary uses a layout effect to focus its heading during commit, retaining the semantic `tabIndex=-1` focus target.
+- **Lesson:** Cross-page focus tests must verify final `activeElement` under real asynchronous interaction and unmount order, not just that a node appears.
 
-### 4. Summary 建议必须归因于显式延误事件
+### 4. Summary suggestions must be attributable to explicit delay events
 
-- **记录**：2026-07-19 09:34 by Codex — 记录回放真实性复审发现的累计偏差误归因。
-- **现象**：旧逻辑把下游正常完成步骤的累计晚点称为“该步骤需要约 57 分钟 buffer”，掩盖了唯一真实注入的鸡肉烘烤八分钟延误。
-- **根因**：仅用 `actualEnd - initial.plannedEnd` 排序，并把依赖等待、资源交接和步骤自身延误混成一个数值。
-- **修复**：建议只从明确的 `TASK_DELAYED` 事件取延误量，再沿显式依赖与零空档资源交接验证受影响路径；没有 Delay 事件就不虚构步骤 buffer。
-- **教训**：事件账本能证明“发生了什么”，派生偏差只能用于描述结果，不能替代因果归因。
+- **Record:** 2026-07-19 09:34 by Codex — Recorded incorrect attribution of cumulative lateness found in replay review.
+- **Symptom:** Old logic described downstream cumulative lateness as a step needing about 57 minutes of buffer, hiding the only actual injected delay: eight minutes of chicken roasting.
+- **Root cause:** Ranking only `actualEnd - initial.plannedEnd` combined dependency waits, resource handoffs, and a step's own delay into one value.
+- **Fix:** Derive suggested delay amounts only from explicit `TASK_DELAYED` events, then verify affected paths through explicit dependencies and zero-gap resource handoffs. Without a Delay event, do not invent a step buffer.
+- **Lesson:** Event ledgers establish what happened. Derived lateness describes results but cannot substitute for causal attribution.
 
-### 5. 分键持久化必须共享版本身份
+### 5. Persistence across separate keys needs a shared revision
 
-- **记录**：2026-07-19 09:58 by Codex — 记录 planner 快照与 UI 时间上下文错配风险的修复。
-- **现象**：planner 与来源、虚拟时钟分别写入两个 `localStorage` key；崩溃或配额错误可能只写成功一半，让旧计划错误套用新来源与新时钟。
-- **根因**：两个可独立失败的写入没有共同事务标识，恢复时只能验证各自结构，无法证明它们来自同一次保存。
-- **修复**：每次 planner 保存生成 UUID v4 revision，并让 context 携带同一 revision；恢复仅接受严格匹配的一对，半写或旧版数据降级为来源未知并从最后验证事件恢复时钟。hydration 前来源也保持未知，避免首帧误标 Hosted。
-- **教训**：浏览器存储没有跨 key 事务；关联快照至少需要共享 revision/fingerprint，并把“不匹配”当成正常可恢复失败。
+- **Record:** 2026-07-19 09:58 by Codex — Recorded the fix for planner-snapshot and UI-time-context mismatches.
+- **Symptom:** Planner state and source/virtual-clock context were written to two separate `localStorage` keys. A crash or quota error could save only half, applying a new source and clock to an old plan.
+- **Root cause:** Independent writes shared no transaction identifier, so recovery could validate each structure without proving they came from one save.
+- **Fix:** Each planner save generates a UUID v4 revision, also stored in the context. Recovery accepts only strictly matching pairs. Partial or legacy writes fall back to unknown provenance and recover the clock from the last verified event. Provenance also remains unknown before hydration, avoiding a false Hosted label on the first frame.
+- **Lesson:** Browser storage has no cross-key transaction. Related snapshots need at least a shared revision/fingerprint, treating mismatches as ordinary recoverable failures.
 
-### 6. 服务端与浏览器时间文案要有确定的水合边界
+### 6. Server and browser time text need deterministic hydration boundaries
 
-- **记录**：2026-07-19 09:58 by Codex — 记录本地时区显示引发 hydration mismatch 的修复。
-- **现象**：服务端按部署机时区格式化任务时间，浏览器按用户时区格式化，同一 `<time>` 首屏文本可能不同并触发水合警告或闪变。
-- **根因**：本地时区是浏览器环境信息，却在 SSR 阶段提前求值。
-- **修复**：SSR 与首轮 hydration 使用确定占位符，水合完成后再升级为浏览器本地时间；Replay 的 `aria-busy` 只包住被锁定任务区，不再吞掉区域外的 live 启动提示。
-- **教训**：依赖客户端环境的显示值必须显式区分 server snapshot 与 browser snapshot；忙碌语义也应只覆盖真正暂停更新的区域。
+- **Record:** 2026-07-19 09:58 by Codex — Recorded the hydration-mismatch fix for local time-zone display.
+- **Symptom:** The server formatted task times in its deployment time zone while the browser used the user's zone, producing different initial `<time>` text and hydration warnings or flicker.
+- **Root cause:** Local time zone is browser environment information but was evaluated during SSR.
+- **Fix:** SSR and initial hydration use deterministic placeholders; browser-local times appear after hydration. Replay `aria-busy` now wraps only locked task areas so live startup announcements outside them remain audible.
+- **Lesson:** Client-dependent display values must distinguish server and browser snapshots. Busy semantics should cover only regions whose updates are actually paused.
 
-### 7. 资源因果边要计算余量消耗并尊重实际顺序
+### 7. Resource-causality edges must account for consumed slack and actual order
 
-- **记录**：2026-07-19 09:58 by Codex — 记录 Summary 延误归因在非零 slack 下的边界。
-- **现象**：只把零空档的相邻资源任务连边，会漏掉“原有 5 分钟余量被 8 分钟延误吃掉并推迟后继 3 分钟”的真实影响；沿用初始顺序又会在重排后误归因。
-- **根因**：把静态计划相邻关系等同于实际资源因果关系，没有结合显式延误、原始余量和当前/实际执行顺序。
-- **修复**：按实际开始时间或当前重排结果建立资源顺序；资源交接和显式依赖都只有在延误越过原 slack 且确实推迟后继时才补充因果边，并加入余量可吸收及顺序反转反例。
-- **教训**：关键路径归因需要同时证明“谁先用资源、延误是否越过余量、后继是否真的被推迟”，不能只看计划端点相等。
+- **Record:** 2026-07-19 09:58 by Codex — Recorded Summary delay-attribution boundaries when slack is nonzero.
+- **Symptom:** Connecting only zero-gap adjacent resource tasks missed cases where an eight-minute delay consumed five minutes of slack and delayed a successor by three minutes. Reusing initial order also misattributed delays after replanning.
+- **Root cause:** Static plan adjacency was treated as actual resource causality without combining explicit delay, original slack, and current/actual execution order.
+- **Fix:** Build resource order from actual start times or the current replan. Add causal edges for resource handoffs and explicit dependencies only when delay exceeds original slack and actually postpones the successor. Added counterexamples for absorbed slack and reversed order.
+- **Lesson:** Critical-path attribution must establish who used a resource first, whether delay exceeded slack, and whether the successor was actually postponed; matching planned endpoints alone is insufficient.
